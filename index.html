@@ -14,7 +14,7 @@
         Connent to your <a href="https://en.wikipedia.org/wiki/USB_human_interface_device_class">HID</a> compatible steering wheel over <a href="https://developer.mozilla.org/en-US/docs/Web/API/WebHID_API">WebHID</a>. No driver (software) needed &#x1F609;.
       </p>
       <p>
-        Connect the wheelbase to your computer over USB and then click on 'Connect' and select your wheel from the list.
+        Connect the wheelbase to your computer over USB. When the device connection dialog appears click on 'Connect' and select your wheel from the device list.
       </p>
       <p>
         Requires a browser with WebHID <a href="https://caniuse.com/webhid">support</a>.
@@ -24,7 +24,7 @@
       </p>
       <p><button id="connectButton">Connect</button></p>
       <h3 id="wheelName">No wheel connected</h3>
-      <svg id="wheel" width="300" height="300" transform="rotate(180)" viewBox="0 0 300 300">
+      <svg id="wheel" width="300" height="300" transform="rotate(180)" viewbox="0 0 300 300">
         <g>
           <line fill="none" id="line_y" stroke="#000000" stroke-width="12" transform="translate(150 50)" x1="0" x2="0" y1="0" y2="100"/>
           <line fill="none" id="line_z" stroke="#000000" stroke-width="12" transform="translate(150 150) rotate(60)" y2="100"/>
@@ -33,7 +33,7 @@
           <ellipse cx="150" cy="150" fill="#000000" rx="25" ry="25"/>
         </g>
       </svg>   
-      <svg id="inputs" width="300" height="300" viewBox="0 0 300 300">
+      <svg id="inputs" width="300" height="300" viewbox="0 0 300 300">
         <g id="buttons" font-family="Arial, Helvetica, sans-serif" font-size="24">
           <ellipse id="b1" cx="50" cy="50" fill="none" stroke="#000000" stroke-width="2" rx="20" ry="20"/>
           <ellipse id="b2" cx="100" cy="50" fill="none" stroke="#000000" stroke-width="2" rx="20" ry="20"/>
