@@ -2,7 +2,7 @@
 
 Read a USB HID steering wheel directly in the browser over the [WebHID](https://developer.mozilla.org/en-US/docs/Web/API/WebHID_API) API — no drivers. You get normalized steering, buttons and pedals, plus force feedback on supported wheels.
 
-**Live demo:** https://joegaffey.github.io/webhid-wheel/
+**Live demo:** https://joegaffey.com/webhid-wheel/
 
 Plug the wheelbase in over USB, click **Connect**, and pick it from the browser's device list. Requires a WebHID-capable browser and a secure context (https or `localhost`).
 
