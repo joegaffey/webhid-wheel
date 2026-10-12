@@ -69,8 +69,8 @@ Got an unsupported wheel? Open the demo, click **Gather diagnostics** (turn full
 ## Run locally
 
 ```sh
-python3 -m http.server 8000
-# open http://127.0.0.1:8000/
+npx serve
+# then open the URL it prints (e.g. http://localhost:3000)
 ```
 
 ## License
