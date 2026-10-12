@@ -1,0 +1,71 @@
+name: Wheel report
+description: Report a steering wheel so it can be added to the registry
+title: "Wheel report: "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting a wheel! In the webhid-wheel page click **Gather diagnostics**, then during the ~12 s capture turn the wheel full-lock left/right and press every button. When it finishes, click **Copy JSON** and paste it below.
+  - type: input
+    id: wheel
+    attributes:
+      label: Wheel model
+      placeholder: e.g. Thrustmaster T248, FFBeast, Logitech G29
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: OS and browser
+      placeholder: e.g. Windows 11, Chrome 130
+    validations:
+      required: true
+  - type: dropdown
+    id: rotation
+    attributes:
+      label: Does the on-screen wheel rotate correctly?
+      options:
+        - "Yes"
+        - "No"
+        - "Partly (wrong direction or range)"
+        - "N/A"
+    validations:
+      required: true
+  - type: dropdown
+    id: buttons
+    attributes:
+      label: Do the button indicators light correctly?
+      options:
+        - "Yes"
+        - "No"
+        - "Some of them"
+        - "N/A"
+    validations:
+      required: true
+  - type: dropdown
+    id: ffb
+    attributes:
+      label: Force feedback result
+      options:
+        - "Not offered for this wheel"
+        - "Constant force works"
+        - "Constant force does nothing"
+        - "Wheel misbehaves"
+        - "Other"
+    validations:
+      required: true
+  - type: textarea
+    id: notes
+    attributes:
+      label: Notes
+      description: Anything unusual — exact wheel/rim/firmware/connection details.
+    validations:
+      required: false
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Diagnostics JSON
+      description: Paste the JSON produced by "Gather diagnostics" (Copy JSON).
+      render: json
+    validations:
+      required: true

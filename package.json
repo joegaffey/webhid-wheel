@@ -1,0 +1,31 @@
+{
+  "name": "webhid-wheel",
+  "version": "0.1.0",
+  "description": "Read a USB HID steering wheel in the browser over WebHID: normalized steering, buttons and pedals, plus force feedback on supported wheels.",
+  "type": "module",
+  "main": "webhid-wheel.js",
+  "module": "webhid-wheel.js",
+  "types": "webhid-wheel.d.ts",
+  "exports": {
+    ".": {
+      "types": "./webhid-wheel.d.ts",
+      "import": "./webhid-wheel.js",
+      "default": "./webhid-wheel.js"
+    }
+  },
+  "files": [
+    "webhid-wheel.js",
+    "webhid-wheel.d.ts"
+  ],
+  "keywords": [
+    "webhid",
+    "hid",
+    "steering-wheel",
+    "racing-wheel",
+    "gamepad",
+    "force-feedback",
+    "ffb",
+    "browser"
+  ],
+  "license": "MIT"
+}
