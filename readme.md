@@ -73,6 +73,10 @@ npx serve
 # then open the URL it prints (e.g. http://localhost:3000)
 ```
 
+## Built with webhid-wheel
+
+- **[Magnetar](https://joegaffey.com/magnetar/)** — a one-axis survival game: catch iron orbs on a rotating magnet before they spiral into the black hole ([source](https://github.com/joegaffey/magnetar)).
+
 ## License
 
 MIT
