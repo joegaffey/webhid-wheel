@@ -25,7 +25,7 @@ or import the module directly:
 ```js
 import { WebHIDWheel } from './webhid-wheel.js';
 
-const wheel = new WebHIDWheel({ maxRotation: 900, ffbStrength: 0.25, deadzone: 0.02 });
+const wheel = new WebHIDWheel({ maxRotation: 900, ffbStrength: 0.25, ffbInvert: false, deadzone: 0.02 });
 
 wheel.on('input', s => { /* s.steering, s.rotation, s.buttons[], s.axes[] */ });
 wheel.on('connect', dev => {});
@@ -35,6 +35,7 @@ wheel.on('error', e => {});
 await wheel.connect();            // call from a user gesture
 wheel.isConnected;                // boolean
 wheel.ffb.supported;              // { constant, periodic, any }
+wheel.ffbInvert = true;           // flip force direction if the wheel pulls the wrong way
 await wheel.ffb.constant(0.3);    // -1..1, strength applied internally
 await wheel.ffb.stop();
 

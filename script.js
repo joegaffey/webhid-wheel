@@ -82,6 +82,14 @@ document.getElementById('connectButton').addEventListener('click', async () => {
     strengthValueEl.textContent = strengthInput.value;
     wheel.setConstantForce(parseInt(forceInput.value) / 100).catch(showFfbError);
   };
+  const invertInput = document.getElementById('invertFfb');
+  invertInput.checked = !!wheel.ffbInvert;
+  invertInput.onchange = () => {
+    wheel.ffbInvert = invertInput.checked;
+    if (parseInt(forceInput.value) !== 0) {
+      wheel.setConstantForce(parseInt(forceInput.value) / 100).catch(showFfbError);
+    }
+  };
   const stopFfbButton = document.getElementById('stopFfb');
   stopFfbButton.onclick = () => {
     forceInput.value = 0;
@@ -192,6 +200,7 @@ function setupDiagnostics() {
 function updateFfbControls(caps) {
   ctrlStrengthEl.classList.toggle('hidden', !caps.constant);
   ctrlForceEl.classList.toggle('hidden', !caps.constant);
+  document.getElementById('ctrlInvert').classList.toggle('hidden', !caps.constant);
   ctrlRumbleEl.classList.toggle('hidden', !caps.periodic);
   ctrlStopEl.classList.toggle('hidden', !caps.any);
   document.getElementById('ffbHint').classList.toggle('hidden', !caps.any);

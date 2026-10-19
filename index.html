@@ -82,6 +82,7 @@
       .control { display: grid; grid-template-columns: 170px 1fr auto; align-items: center; gap: 14px; }
       .control label { color: var(--muted); font-size: .9rem; }
       .control .val { font-variant-numeric: tabular-nums; color: var(--text); font-weight: 600; min-width: 48px; text-align: right; }
+      .control input[type="checkbox"] { justify-self: start; width: 18px; height: 18px; accent-color: var(--accent); }
       input[type="range"] { -webkit-appearance: none; appearance: none; height: 6px; border-radius: 999px; background: #2b3240; outline: none; width: 100%; }
       input[type="range"]::-webkit-slider-thumb { -webkit-appearance: none; width: 18px; height: 18px; border-radius: 50%; background: var(--accent); border: 2px solid var(--bg); cursor: pointer; box-shadow: 0 2px 6px rgba(0, 0, 0, .5); }
       input[type="range"]::-moz-range-thumb { width: 16px; height: 16px; border: 2px solid var(--bg); border-radius: 50%; background: var(--accent); cursor: pointer; }
@@ -220,6 +221,11 @@
           <label for="force">Constant Force</label>
           <input type="range" min="-100" max="100" value="0" id="force">
           <span class="val" id="forceValue">0</span>
+        </div>
+        <div class="control hidden" id="ctrlInvert">
+          <label for="invertFfb">Invert Force</label>
+          <input type="checkbox" id="invertFfb">
+          <span class="val"></span>
         </div>
         <div class="control hidden" id="ctrlRumble">
           <label for="rumble">Rumble Effect</label>

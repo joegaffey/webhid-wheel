@@ -412,6 +412,7 @@ export class WebHIDWheel {
     this.options = options;
     this.maxRotation = options.maxRotation !== undefined ? options.maxRotation : 900;
     this.ffbStrength = options.ffbStrength !== undefined ? options.ffbStrength : 0.25;
+    this.ffbInvert = options.ffbInvert !== undefined ? options.ffbInvert : false;
     this.deadzone = options.deadzone !== undefined ? options.deadzone : 0;
     this._listeners = {};
   }
@@ -534,10 +535,11 @@ export class WebHIDWheel {
 
   async setConstantForce(value) {
     if (!this.device) return;
+    const force = this.ffbInvert ? -value : value;
     if (this.profile && this.profile.ffb && this.profile.ffb.constant)
-      return this.profile.ffb.constant(this.device, value, this);
+      return this.profile.ffb.constant(this.device, force, this);
     if (this.pidFfb)
-      return this.pidFfb.constant(this.device, value, this);
+      return this.pidFfb.constant(this.device, force, this);
   }
 
   async stopEffects() {

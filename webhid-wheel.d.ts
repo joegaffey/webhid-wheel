@@ -58,6 +58,8 @@ export interface WebHIDWheelOptions {
   maxRotation?: number;
   /** Default force scale (0-1) applied to commanded FFB. Default 0.25. */
   ffbStrength?: number;
+  /** Invert constant force direction. Default false. */
+  ffbInvert?: boolean;
   /** Steering deadzone as a fraction of half-range (0-1). Default 0. */
   deadzone?: number;
   /** Filters passed to `navigator.hid.requestDevice`. */
@@ -111,6 +113,7 @@ export declare class WebHIDWheel {
 
   maxRotation: number;
   ffbStrength: number;
+  ffbInvert: boolean;
   deadzone: number;
 
   setConstantForce(value: number): Promise<void>;
