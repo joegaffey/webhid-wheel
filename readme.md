@@ -9,7 +9,7 @@ Plug the wheelbase in over USB, click **Connect**, and pick it from the browser'
 ## Features
 
 - **Input** — steering, buttons and pedals from any HID wheel, using a small per-model profile registry with a generic **HID-descriptor fallback** for unknown wheels.
-- **Force feedback** — constant force where the device supports it: a built-in profile for FFBeast, plus automatic **USB-PID** detection for compliant devices. Safe by default (low strength, explicit stop).
+- **Force feedback** — constant force where the device supports it: built-in CAMMUS C5/C12 and FFBeast profiles, plus automatic **USB-PID** detection for compliant devices. Includes force inversion and is safe by default (low strength, explicit stop).
 - **Diagnostics** — capture a wheel's descriptor + a guided input sweep and file a one-click **wheel report** to grow the registry.
 
 ## Library
@@ -61,10 +61,13 @@ WebHIDWheel.registerProfile({
 | --- | --- | --- |
 | Thrustmaster T248 / T300RS | steering, buttons | — |
 | Logitech Driving Force GT | steering, buttons | — |
-| CAMMUS C5 / C12 | steering, buttons, axes (generic) | constant force (USB-PID) |
+| CAMMUS C5 | steering, buttons, axes | constant force (USB-PID, verified) |
+| CAMMUS C12 | steering, buttons, axes | constant force (USB-PID) |
 | FFBeast | steering | constant force |
 | Any standard-descriptor HID wheel | steering/axes/buttons (generic) | — |
 | Any USB-PID FFB device | — | constant force (auto-detected) |
+
+CAMMUS C5 is verified on Windows 11 with Chrome. If force pulls the wrong way, tick **Invert Force** in the demo or set `ffbInvert: true`.
 
 Got an unsupported wheel? Open the demo, click **Gather diagnostics** (turn full-lock, press every button), then **Open issue** and paste the JSON.
 
