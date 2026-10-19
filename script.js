@@ -67,12 +67,12 @@ document.getElementById('connectButton').addEventListener('click', async () => {
   const forceValueEl = document.getElementById('forceValue');
   forceInput.oninput = () => {
     forceValueEl.textContent = forceInput.value;
-    wheel.setConstantForce(parseInt(forceInput.value) / 100);
+    wheel.setConstantForce(parseInt(forceInput.value) / 100).catch(showFfbError);
   };
   forceInput.onchange = () => {
     forceInput.value = 0;
     forceValueEl.textContent = '0';
-    wheel.stopEffects();
+    wheel.stopEffects().catch(showFfbError);
   };
   const strengthInput = document.getElementById('strength');
   const strengthValueEl = document.getElementById('strengthValue');
@@ -80,15 +80,22 @@ document.getElementById('connectButton').addEventListener('click', async () => {
   strengthInput.oninput = () => {
     wheel.ffbStrength = parseInt(strengthInput.value) / 100;
     strengthValueEl.textContent = strengthInput.value;
-    wheel.setConstantForce(parseInt(forceInput.value) / 100);
+    wheel.setConstantForce(parseInt(forceInput.value) / 100).catch(showFfbError);
   };
   const stopFfbButton = document.getElementById('stopFfb');
   stopFfbButton.onclick = () => {
     forceInput.value = 0;
     forceValueEl.textContent = '0';
-    wheel.stopEffects();
+    wheel.stopEffects().catch(showFfbError);
   };
 });
+
+function showFfbError(e) {
+  const hint = document.getElementById('ffbHint');
+  if (!hint) return;
+  hint.textContent = 'Force feedback error: ' + (e && e.message ? e.message : e);
+  hint.classList.remove('hidden');
+}
 
 ////////////////////////////////// Init SVGs 
 

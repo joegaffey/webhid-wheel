@@ -184,16 +184,19 @@ function buildPidFfb(device) {
   const durationField = find(setEffect, 0x50);
   const gainField = find(setEffect, 0x52);
   const directionEnableField = find(setEffect, 0x56);
+  const axisXField = setEffect.fields.find(f => f.uids.some(u => u.page === 0x01 && u.id === 0x30));
   const constBlock = find(setConstant, 0x22) || setConstant.fields[0];
   const magField = find(setConstant, 0x70);
   const opBlock = find(effectOp, 0x22) || effectOp.fields[0];
   const opField = find(effectOp, 0x78) || find(effectOp, 0x79) || find(effectOp, 0x7a);
+  const loopField = find(effectOp, 0x7c);
   if (!typeField || !magField || !opField) return null;
 
   const create = features.find(r => has(r, 0x26) && !has(r, 0x22));
   const createType = find(create, 0x26);
   const blockLoad = features.find(r => has(r, 0x22) && (has(r, 0x8c) || has(r, 0x8d) || has(r, 0x8e)));
   const blockField = find(blockLoad, 0x22);
+  const statusField = find(blockLoad, 0x8c) || find(blockLoad, 0x8b);
   const control = outputs.find(r => has(r, 0x97) || has(r, 0x98) || has(r, 0x99));
   const gainOut = outputs.find(r => has(r, 0x7e));
 
@@ -203,7 +206,16 @@ function buildPidFfb(device) {
     return index >= 0 ? index + 1 : fallback;
   };
 
-  const constantType = usageIndex(typeField, 0x26, 1);
+  const typeCandidates = [];
+  const addType = (value) => {
+    if (value > 0 && !typeCandidates.includes(value)) typeCandidates.push(value);
+  };
+  const webhidType = usageIndex(typeField, 0x26, 1);
+  addType(1);
+  addType(webhidType);
+  if (typeField.uids.length > 1) addType(typeField.uids.length - webhidType + 1);
+  let constantType = typeCandidates[0] || 1;
+
   const startValue = usageIndex(opField, 0x79, 1);
   const stopValue = usageIndex(opField, 0x7b, 3);
   const magMax = Math.max(Math.abs(magField.max || 0), Math.abs(magField.min || 0), 1);
@@ -220,6 +232,15 @@ function buildPidFfb(device) {
 
   let effectId = 1;
   let ready = null;
+  const info = {
+    setEffect: setEffect.id,
+    setConstant: setConstant.id,
+    effectOperation: effectOp.id,
+    constantType,
+    effectBlock: effectId,
+    typeCandidates: typeCandidates.slice()
+  };
+
   const init = (device) => {
     if (ready) return ready;
     ready = (async () => {
@@ -243,44 +264,70 @@ function buildPidFfb(device) {
       if (create && blockLoad && createType && blockField &&
           typeof device.sendFeatureReport === 'function' &&
           typeof device.receiveFeatureReport === 'function') {
-        try {
-          const data = new Uint8Array(create.len);
-          writeBits(data, createType.offset, createType.size, constantType);
-          await device.sendFeatureReport(create.id, data);
-          for (let attempt = 0; attempt < 10; attempt++) {
-            const reply = await device.receiveFeatureReport(blockLoad.id);
-            const id = readBits(reply, blockField.offset, blockField.size);
-            if (id > 0) { effectId = id; break; }
-            await new Promise(resolve => setTimeout(resolve, 10));
+        info.createAttempts = [];
+        for (const candidate of typeCandidates) {
+          try {
+            const data = new Uint8Array(create.len);
+            writeBits(data, createType.offset, createType.size, candidate);
+            await device.sendFeatureReport(create.id, data);
+            let id = 0, status = 0;
+            for (let attempt = 0; attempt < 10; attempt++) {
+              const reply = await device.receiveFeatureReport(blockLoad.id);
+              id = readBits(reply, blockField.offset, blockField.size);
+              status = statusField ? readBits(reply, statusField.offset, statusField.size) : 1;
+              if (id > 0 && status === 1) break;
+              if (status === 2 || status === 3) break;
+              await new Promise(resolve => setTimeout(resolve, 10));
+            }
+            info.createAttempts.push({ type: candidate, block: id, status });
+            if (id > 0 && status === 1) {
+              constantType = candidate;
+              effectId = id;
+              info.constantType = candidate;
+              info.effectBlock = id;
+              break;
+            }
+          } catch (e) {
+            info.createError = String(e && e.message ? e.message : e);
+            break;
           }
-        } catch (e) { /* use fixed effect block */ }
+        }
       }
     })();
     return ready;
   };
 
   const dispatch = async (device, value, wheel) => {
-    await init(device);
-    const strength = (wheel && wheel.ffbStrength !== undefined) ? wheel.ffbStrength : 1;
-    const mag = Math.max(-magMax, Math.min(magMax, Math.round(value * strength * magMax)));
+    try {
+      await init(device);
+      const strength = (wheel && wheel.ffbStrength !== undefined) ? wheel.ffbStrength : 1;
+      const mag = Math.max(-magMax, Math.min(magMax, Math.round(value * strength * magMax)));
 
-    const se = new Uint8Array(setEffect.len);
-    writeBits(se, seBlock.offset, seBlock.size, effectId);
-    writeBits(se, typeField.offset, typeField.size, constantType);
-    if (durationField) writeBits(se, durationField.offset, durationField.size, Math.pow(2, durationField.size) - 1);
-    if (gainField) writeBits(se, gainField.offset, gainField.size, gainField.max > 0 ? gainField.max : 255);
-    if (directionEnableField) writeBits(se, directionEnableField.offset, directionEnableField.size, 1);
-    await device.sendReport(setEffect.id, se);
+      const se = new Uint8Array(setEffect.len);
+      writeBits(se, seBlock.offset, seBlock.size, effectId);
+      writeBits(se, typeField.offset, typeField.size, constantType);
+      if (durationField) writeBits(se, durationField.offset, durationField.size, Math.pow(2, durationField.size) - 1);
+      if (gainField) writeBits(se, gainField.offset, gainField.size, gainField.max > 0 ? gainField.max : 255);
+      if (directionEnableField) writeBits(se, directionEnableField.offset, directionEnableField.size, 1);
+      if (axisXField) writeBits(se, axisXField.offset, axisXField.size, 1);
+      await device.sendReport(setEffect.id, se);
 
-    const sc = new Uint8Array(setConstant.len);
-    writeBits(sc, constBlock.offset, constBlock.size, effectId);
-    writeBits(sc, magField.offset, magField.size, mag);
-    await device.sendReport(setConstant.id, sc);
+      const sc = new Uint8Array(setConstant.len);
+      writeBits(sc, constBlock.offset, constBlock.size, effectId);
+      writeBits(sc, magField.offset, magField.size, mag);
+      await device.sendReport(setConstant.id, sc);
 
-    const eo = new Uint8Array(effectOp.len);
-    writeBits(eo, opBlock.offset, opBlock.size, effectId);
-    writeBits(eo, opField.offset, opField.size, startValue);
-    await device.sendReport(effectOp.id, eo);
+      const eo = new Uint8Array(effectOp.len);
+      writeBits(eo, opBlock.offset, opBlock.size, effectId);
+      writeBits(eo, opField.offset, opField.size, startValue);
+      if (loopField) writeBits(eo, loopField.offset, loopField.size, 1);
+      await device.sendReport(effectOp.id, eo);
+      info.lastValue = value;
+      info.lastMagnitude = mag;
+    } catch (e) {
+      info.error = String(e && e.message ? e.message : e);
+      throw e;
+    }
   };
 
   const stop = async (device) => {
@@ -296,7 +343,7 @@ function buildPidFfb(device) {
     await device.sendReport(setConstant.id, sc);
   };
 
-  return { constant: dispatch, stop, info: { setEffect: setEffect.id, setConstant: setConstant.id, effectOperation: effectOp.id, constantType } };
+  return { constant: dispatch, stop, info };
 }
 
 const defaultProfiles = [
