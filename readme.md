@@ -12,6 +12,12 @@ Plug the wheelbase in over USB, click **Connect**, and pick it from the browser'
 - **Force feedback** — constant force where the device supports it: built-in CAMMUS C5/C12 and FFBeast profiles, plus automatic **USB-PID** detection for compliant devices. Includes force inversion and is safe by default (low strength, explicit stop).
 - **Diagnostics** — capture a wheel's descriptor + a guided input sweep and file a one-click **wheel report** to grow the registry.
 
+## Device Config page and optional rigs
+
+The current page is evolving into the central **Device Config** page. Apps will link to it for device setup rather than implementing their own device-management UI. Multi-device support will be an optional `WebHIDRig` layer in this package; single-wheel apps can continue using `WebHIDWheel`.
+
+User-defined rig profiles will be portable across apps using the library. See [Device Config page and optional rigs](./docs/device-config-and-rigs.md) for the proposed architecture, storage model, standard slot/channel names, and implementation phases.
+
 ## Library
 
 Plain ESM, zero dependencies, DOM-free.
