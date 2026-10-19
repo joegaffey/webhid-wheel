@@ -45,6 +45,8 @@ export interface WheelProfile {
   vendorId?: number;
   /** Optional, alongside `vendorId`. */
   productId?: number;
+  /** Default lock-to-lock range for this wheel, unless `maxRotation` is passed to the constructor. */
+  maxRotation?: number;
   /** Maps a raw input report onto `wheel` state. */
   parse?: (data: DataView, wheel: WebHIDWheel) => void;
   /** Optional custom force-feedback implementation for this wheel. */

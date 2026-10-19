@@ -18,6 +18,22 @@ function writeBits(bytes, bitOffset, size, value) {
   }
 }
 
+function readFieldValue(view, field) {
+  const raw = readBits(view, field.offset, field.size);
+  if (field.min < 0 && field.size < 32) {
+    const sign = 1 << (field.size - 1);
+    if (raw & sign) return raw - (1 << field.size);
+  }
+  return raw;
+}
+
+function normalizeField(value, field) {
+  const min = field.min !== undefined ? field.min : 0;
+  const max = field.max !== undefined ? field.max : (Math.pow(2, field.size) - 1);
+  const range = max - min;
+  return range > 0 ? (value - min) / range : 0;
+}
+
 function report64(bytes) {
   const b = new Uint8Array(64);
   for (let i = 0; i < bytes.length; i++) b[i] = bytes[i] & 0xff;
@@ -85,7 +101,8 @@ function buildDescriptorLayout(device) {
       for (const item of (report.items || [])) {
         const size = item.reportSize;
         const count = item.reportCount;
-        const usage = (item.usages && item.usages[0]) || 0;
+        const usages = item.usages || [];
+        const usage = usages[0] || 0;
         const page = usage >>> 16;
         const id = usage & 0xffff;
 
@@ -93,11 +110,16 @@ function buildDescriptorLayout(device) {
           steering = { offset, size, min: item.logicalMinimum, max: item.logicalMaximum };
           reportId = report.reportId;
         }
-        if (page === 0x09 && size === 1) {
+
+        const isButtonPage = usages.some(u => (u >>> 16) === 0x09);
+        const isButtonRange = !item.isConstant && size === 1 &&
+          (isButtonPage || item.isRange || (!usages.length && count > 1));
+        if (isButtonRange) {
           for (let b = 0; b < count; b++) buttons.push({ offset: offset + b * size });
         }
+
         if (page === 0x01 && [0x30, 0x31, 0x32, 0x33, 0x34, 0x35].includes(id)) {
-          axes.push({ offset, size, usage: id });
+          axes.push({ offset, size, usage: id, min: item.logicalMinimum, max: item.logicalMaximum });
         }
 
         offset += size * count;
@@ -113,76 +135,163 @@ function parseGeneric(data, wheel) {
   if (wheel.reportId !== layout.reportId) return;
 
   const s = layout.steering;
-  const range = (s.max > s.min) ? (s.max - s.min) : ((1 << s.size) - 1);
-  wheel.steering = readBits(data, s.offset, s.size);
-  wheel.rotation = ((wheel.steering - s.min) / range - 0.5) * wheel.maxRotation;
+  wheel.steering = readFieldValue(data, s);
+  wheel.rotation = (normalizeField(wheel.steering, s) - 0.5) * wheel.maxRotation;
 
   wheel.buttons = layout.buttons.map(b => readBits(data, b.offset, 1) === 1);
-  wheel.axes = layout.axes.map(a => readBits(data, a.offset, a.size) / ((1 << a.size) - 1) * 255);
+  wheel.axes = layout.axes.map(a => {
+    const value = normalizeField(readFieldValue(data, a), a) * 255;
+    return Math.max(0, Math.min(255, value));
+  });
 }
 
 function buildPidFfb(device) {
-  const reports = [];
-  for (const c of device.collections) {
-    for (const r of (c.outputReports || [])) {
-      const fields = [];
-      let offset = 0;
-      for (const it of (r.items || [])) {
-        const uids = (it.usages || []).map(u => ({ page: u >>> 16, id: u & 0xffff }));
-        fields.push({ uids, offset, size: it.reportSize, count: it.reportCount });
-        offset += it.reportSize * it.reportCount;
+  const collect = (listName) => {
+    const reports = [];
+    for (const c of device.collections) {
+      for (const r of (c[listName] || [])) {
+        const fields = [];
+        let offset = 0;
+        for (const it of (r.items || [])) {
+          const uids = (it.usages || []).map(u => ({ page: u >>> 16, id: u & 0xffff }));
+          fields.push({
+            uids, offset, size: it.reportSize, count: it.reportCount,
+            min: it.logicalMinimum, max: it.logicalMaximum,
+            array: !!it.isArray, constant: !!it.isConstant
+          });
+          offset += it.reportSize * it.reportCount;
+        }
+        reports.push({ id: r.reportId, len: Math.ceil(offset / 8), fields });
       }
-      reports.push({ id: r.reportId, len: offset / 8, fields });
     }
-  }
-  const hasUsage = (f, id) => f.uids.some(u => u.page === 0x0f && u.id === id);
-  const find = (r, id) => r.fields.find(f => hasUsage(f, id));
-  const has = (r, id) => r.fields.some(f => hasUsage(f, id));
+    return reports;
+  };
 
-  const setEffect = reports.find(r => has(r, 0x34));
-  const effectOp = reports.find(r => has(r, 0x79) || has(r, 0x7a));
-  const setConstant = reports.find(r => has(r, 0x22) && has(r, 0x70) && !has(r, 0x71));
+  const outputs = collect('outputReports');
+  const features = collect('featureReports');
+
+  const hasUsage = (f, id) => f.uids.some(u => u.page === 0x0f && u.id === id);
+  const find = (r, id) => r && r.fields.find(f => hasUsage(f, id));
+  const has = (r, id) => !!(r && r.fields.some(f => hasUsage(f, id)));
+
+  const setEffect = outputs.find(r => has(r, 0x26) && (has(r, 0x50) || has(r, 0x52)));
+  const effectOp = outputs.find(r => has(r, 0x78) || has(r, 0x79) || has(r, 0x7a));
+  const setConstant = outputs.find(r => has(r, 0x22) && has(r, 0x70) && !has(r, 0x71) && !has(r, 0x6f));
   if (!setEffect || !effectOp || !setConstant) return null;
 
   const seBlock = find(setEffect, 0x22) || setEffect.fields[0];
-  const typeField = find(setEffect, 0x34);
+  const typeField = find(setEffect, 0x26);
+  const durationField = find(setEffect, 0x50);
   const gainField = find(setEffect, 0x52);
+  const directionEnableField = find(setEffect, 0x56);
   const constBlock = find(setConstant, 0x22) || setConstant.fields[0];
   const magField = find(setConstant, 0x70);
   const opBlock = find(effectOp, 0x22) || effectOp.fields[0];
-  const opField = find(effectOp, 0x7a) || find(effectOp, 0x79);
+  const opField = find(effectOp, 0x78) || find(effectOp, 0x79) || find(effectOp, 0x7a);
   if (!typeField || !magField || !opField) return null;
 
-  const constantType = typeField.uids.some(u => u.id === 0x26) ? 0x26 : 1;
+  const create = features.find(r => has(r, 0x26) && !has(r, 0x22));
+  const createType = find(create, 0x26);
+  const blockLoad = features.find(r => has(r, 0x22) && (has(r, 0x8c) || has(r, 0x8d) || has(r, 0x8e)));
+  const blockField = find(blockLoad, 0x22);
+  const control = outputs.find(r => has(r, 0x97) || has(r, 0x98) || has(r, 0x99));
+  const gainOut = outputs.find(r => has(r, 0x7e));
+
+  const usageIndex = (field, id, fallback) => {
+    if (!field) return fallback;
+    const index = field.uids.findIndex(u => u.page === 0x0f && u.id === id);
+    return index >= 0 ? index + 1 : fallback;
+  };
+
+  const constantType = usageIndex(typeField, 0x26, 1);
+  const startValue = usageIndex(opField, 0x79, 1);
+  const stopValue = usageIndex(opField, 0x7b, 3);
+  const magMax = Math.max(Math.abs(magField.max || 0), Math.abs(magField.min || 0), 1);
+
+  const sendControl = async (device, id) => {
+    if (!control) return;
+    const field = find(control, id);
+    if (!field) return;
+    const data = new Uint8Array(control.len);
+    const value = (field.array && field.uids.length > 1) ? usageIndex(field, id, 1) : 1;
+    writeBits(data, field.offset, field.size, value);
+    await device.sendReport(control.id, data);
+  };
+
+  let effectId = 1;
+  let ready = null;
+  const init = (device) => {
+    if (ready) return ready;
+    ready = (async () => {
+      try {
+        await sendControl(device, 0x9a);
+        await sendControl(device, 0x99);
+        await sendControl(device, 0x97);
+      } catch (e) { /* noop */ }
+
+      if (gainOut) {
+        const field = find(gainOut, 0x7e);
+        if (field) {
+          try {
+            const data = new Uint8Array(gainOut.len);
+            writeBits(data, field.offset, field.size, field.max > 0 ? field.max : 255);
+            await device.sendReport(gainOut.id, data);
+          } catch (e) { /* noop */ }
+        }
+      }
+
+      if (create && blockLoad && createType && blockField &&
+          typeof device.sendFeatureReport === 'function' &&
+          typeof device.receiveFeatureReport === 'function') {
+        try {
+          const data = new Uint8Array(create.len);
+          writeBits(data, createType.offset, createType.size, constantType);
+          await device.sendFeatureReport(create.id, data);
+          for (let attempt = 0; attempt < 10; attempt++) {
+            const reply = await device.receiveFeatureReport(blockLoad.id);
+            const id = readBits(reply, blockField.offset, blockField.size);
+            if (id > 0) { effectId = id; break; }
+            await new Promise(resolve => setTimeout(resolve, 10));
+          }
+        } catch (e) { /* use fixed effect block */ }
+      }
+    })();
+    return ready;
+  };
 
   const dispatch = async (device, value, wheel) => {
+    await init(device);
     const strength = (wheel && wheel.ffbStrength !== undefined) ? wheel.ffbStrength : 1;
-    const mag = Math.max(-10000, Math.min(10000, Math.round(value * strength * 10000)));
+    const mag = Math.max(-magMax, Math.min(magMax, Math.round(value * strength * magMax)));
 
     const se = new Uint8Array(setEffect.len);
-    writeBits(se, seBlock.offset, seBlock.size, 1);
+    writeBits(se, seBlock.offset, seBlock.size, effectId);
     writeBits(se, typeField.offset, typeField.size, constantType);
-    if (gainField) writeBits(se, gainField.offset, gainField.size, 255);
+    if (durationField) writeBits(se, durationField.offset, durationField.size, Math.pow(2, durationField.size) - 1);
+    if (gainField) writeBits(se, gainField.offset, gainField.size, gainField.max > 0 ? gainField.max : 255);
+    if (directionEnableField) writeBits(se, directionEnableField.offset, directionEnableField.size, 1);
     await device.sendReport(setEffect.id, se);
 
     const sc = new Uint8Array(setConstant.len);
-    writeBits(sc, constBlock.offset, constBlock.size, 1);
+    writeBits(sc, constBlock.offset, constBlock.size, effectId);
     writeBits(sc, magField.offset, magField.size, mag);
     await device.sendReport(setConstant.id, sc);
 
     const eo = new Uint8Array(effectOp.len);
-    writeBits(eo, opBlock.offset, opBlock.size, 1);
-    writeBits(eo, opField.offset, opField.size, 1);
+    writeBits(eo, opBlock.offset, opBlock.size, effectId);
+    writeBits(eo, opField.offset, opField.size, startValue);
     await device.sendReport(effectOp.id, eo);
   };
 
   const stop = async (device) => {
+    if (!ready) return;
+    await ready;
     const eo = new Uint8Array(effectOp.len);
-    writeBits(eo, opBlock.offset, opBlock.size, 1);
-    writeBits(eo, opField.offset, opField.size, 3);
+    writeBits(eo, opBlock.offset, opBlock.size, effectId);
+    writeBits(eo, opField.offset, opField.size, stopValue);
     await device.sendReport(effectOp.id, eo);
     const sc = new Uint8Array(setConstant.len);
-    writeBits(sc, constBlock.offset, constBlock.size, 1);
+    writeBits(sc, constBlock.offset, constBlock.size, effectId);
     writeBits(sc, magField.offset, magField.size, 0);
     await device.sendReport(setConstant.id, sc);
   };
@@ -200,6 +309,18 @@ const defaultProfiles = [
     name: 'Logitech Driving Force GT',
     match: /driving force gt/i,
     parse: parseLogitechDFGT
+  },
+  {
+    name: 'CAMMUS C5',
+    vendorId: 0x3416,
+    productId: 0x0301,
+    maxRotation: 1080
+  },
+  {
+    name: 'CAMMUS C12',
+    vendorId: 0x3416,
+    productId: 0x0302,
+    maxRotation: 1080
   },
   {
     name: 'FFBeast',
@@ -300,6 +421,9 @@ export class WebHIDWheel {
 
     this.name = dev.productName;
     this.profile = registeredProfiles.find(p => profileMatches(p, dev)) || null;
+    if (this.profile && this.profile.maxRotation !== undefined && this.options.maxRotation === undefined) {
+      this.maxRotation = this.profile.maxRotation;
+    }
     this.layout = buildDescriptorLayout(dev);
     this.pidFfb = (this.profile && this.profile.ffb) ? null : buildPidFfb(dev);
     this.parserName = this.profile ? this.profile.name : (this.layout ? 'Generic (HID descriptor)' : null);

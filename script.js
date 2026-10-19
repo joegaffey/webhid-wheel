@@ -13,7 +13,13 @@ document.getElementById('connectButton').addEventListener('click', async () => {
   
   // This will request the WebHID device and initialize the controller
   await wheel.connect();
-  wheel.maxRotation = maxRotation;
+  if (wheel.profile && wheel.profile.maxRotation !== undefined) {
+    maxRotation = wheel.maxRotation;
+    document.getElementById('maxRotation').value = maxRotation;
+    document.getElementById('maxRotationValue').textContent = maxRotation;
+  } else {
+    wheel.maxRotation = maxRotation;
+  }
   if (wheel.parserName) {
     wheelProfileEl.textContent = wheel.parserName;
     wheelProfileEl.classList.toggle('warn', !wheel.profile);
@@ -142,7 +148,7 @@ function setupDiagnostics() {
     statusEl.classList.remove('live');
 
     const dev = wheel.device;
-    const item = (i) => ({ usages: (i.usages || []).map(u => '0x' + (u >>> 0).toString(16)), size: i.reportSize, count: i.reportCount, logicalMin: i.logicalMinimum, logicalMax: i.logicalMaximum });
+    const item = (i) => ({ usages: (i.usages || []).map(u => '0x' + (u >>> 0).toString(16)), size: i.reportSize, count: i.reportCount, logicalMin: i.logicalMinimum, logicalMax: i.logicalMaximum, isConstant: i.isConstant, isRange: i.isRange, isArray: i.isArray });
     const reports = (list) => list.map(r => ({ id: r.reportId, items: r.items.map(item) }));
     const payload = {
       generatedAt: new Date().toISOString(),

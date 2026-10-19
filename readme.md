@@ -60,6 +60,7 @@ WebHIDWheel.registerProfile({
 | --- | --- | --- |
 | Thrustmaster T248 / T300RS | steering, buttons | — |
 | Logitech Driving Force GT | steering, buttons | — |
+| CAMMUS C5 / C12 | steering, buttons, axes (generic) | constant force (USB-PID) |
 | FFBeast | steering | constant force |
 | Any standard-descriptor HID wheel | steering/axes/buttons (generic) | — |
 | Any USB-PID FFB device | — | constant force (auto-detected) |
