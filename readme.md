@@ -2,7 +2,7 @@
 
 Read a USB HID steering wheel directly in the browser over the [WebHID](https://developer.mozilla.org/en-US/docs/Web/API/WebHID_API) API — no drivers. You get normalized steering, buttons and pedals, plus force feedback on supported wheels.
 
-**Live demo:** https://joegaffey.com/webhid-wheel/
+**Live demo:** [webhid-wheel demo](https://joegaffey.com/webhid-wheel/)
 
 Plug the wheelbase in over USB, click **Connect**, and pick it from the browser's device list. Requires a WebHID-capable browser and a secure context (https or `localhost`).
 
@@ -75,6 +75,8 @@ WebHIDWheel.registerProfile({
 
 CAMMUS C5 is verified on Windows 11 with Chrome. If force pulls the wrong way, tick **Invert Force** in the demo or set `ffbInvert: true`.
 
+Logitech and Fanatec wheels generally do not expose standard USB-PID FFB, so they will need vendor-specific profiles. See [Logitech and Fanatec FFB workarounds](./docs/vendor-ffb-workarounds.md) for the likely implementation path.
+
 Got an unsupported wheel? Open the demo, click **Gather diagnostics** (turn full-lock, press every button), then **Open issue** and paste the JSON.
 
 ## Run locally
@@ -87,6 +89,7 @@ npx serve
 ## Built with webhid-wheel
 
 - **[Magnetar](https://joegaffey.com/magnetar/)** — a one-axis survival game: catch iron orbs on a rotating magnet before they spiral into the black hole ([source](https://github.com/joegaffey/magnetar)).
+- **[Ghost Driver](https://joegaffey.com/ghost-driver/)** — **experimental** pure-browser replay that drives a force-feedback wheel from racing telemetry ([source](https://github.com/joegaffey/ghost-driver)).
 
 ## License
 

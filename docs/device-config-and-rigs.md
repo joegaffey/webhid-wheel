@@ -216,6 +216,11 @@ App flow:
 3. On focus, visibility change, or `storage` event, reload configuration.
 4. A minimal rig selector in-app is acceptable, but device assignment and channel mapping stay on the config page.
 
+Consuming apps:
+
+- **Magnetar** — single-axis game; uses `WebHIDWheel` without a rig profile.
+- **Ghost Driver (experimental)** — capability-based playback that drives an FFB wheel from racing telemetry; consumes wheel state and force commands without app-side model branching.
+
 ## Merged state
 
 Keep per-slot state and provide stable aggregates:
@@ -245,6 +250,10 @@ rig.ffb.constant(0.3)  // delegated to the FFB-capable wheel slot
 6. Add export/import and cross-origin guidance.
 7. Update typings, README, and app-developer documentation.
 8. Optional: config-popup `postMessage` handoff and cross-tab ownership lock via Web Locks.
+
+## Related documents
+
+- [Logitech and Fanatec FFB workarounds](./vendor-ffb-workarounds.md)
 
 ## Open questions
 
