@@ -14,11 +14,11 @@ const AXIS_ROWS = [
 ];
 
 const BUTTON_ACTIONS = [
+  'gearUp',
+  'gearDown',
   'reverse',
   'neutral',
   ...Array.from({ length: 8 }, (_, index) => `gear${index + 1}`),
-  'gearUp',
-  'gearDown',
   'handbrake'
 ];
 
@@ -113,13 +113,17 @@ function deviceMeta(session) {
     vendorId: session.vendorId,
     productId: session.productId,
     productName: session.name,
+    signature: session.signature,
     kind: session.kind,
     ffb: session.ffb
   };
 }
 
 function sameDeviceMeta(a, b) {
-  return a && b && a.vendorId === b.vendorId && a.productId === b.productId && a.productName === b.productName;
+  if (!a || !b) return false;
+  if (a.vendorId !== b.vendorId || a.productId !== b.productId || a.productName !== b.productName) return false;
+  if (a.signature && b.signature) return a.signature === b.signature;
+  return true;
 }
 
 function upsertSaved(meta) {
@@ -163,6 +167,44 @@ function hex(value, width = 4) {
   return '0x' + Number(value || 0).toString(16).toUpperCase().padStart(width, '0');
 }
 
+function hashString(text) {
+  let hash = 2166136261;
+  for (let index = 0; index < text.length; index++) {
+    hash ^= text.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return (hash >>> 0).toString(16).padStart(8, '0');
+}
+
+function deviceSignature(device) {
+  const parts = [];
+  for (const collection of device.collections || []) {
+    parts.push(`c:${collection.usagePage}:${collection.usage}`);
+    for (const [kind, list] of [
+      ['i', collection.inputReports],
+      ['o', collection.outputReports],
+      ['f', collection.featureReports]
+    ]) {
+      for (const report of list || []) {
+        parts.push(`${kind}:${report.reportId}`);
+        for (const item of report.items || []) {
+          const usages = (item.usages || []).map(value => value.toString(16)).join(',');
+          parts.push(`${item.reportSize}x${item.reportCount}:${item.logicalMinimum}:${item.logicalMaximum}:${usages}:${item.isConstant ? 1 : 0}:${item.isRange ? 1 : 0}:${item.isArray ? 1 : 0}`);
+        }
+      }
+    }
+  }
+  return hashString(parts.join('|'));
+}
+
+function deviceMatchesMeta(device, meta) {
+  if (!device || !meta) return false;
+  if (device.vendorId !== meta.vendorId || device.productId !== meta.productId) return false;
+  if ((device.productName || '') !== (meta.productName || '')) return false;
+  if (meta.signature && deviceSignature(device) !== meta.signature) return false;
+  return true;
+}
+
 function actionLabel(key) {
   if (key.startsWith('gear') && /^\d+$/.test(key.slice(4))) return `Gear ${key.slice(4)}`;
   if (key === 'gearUp') return 'Gear up';
@@ -185,7 +227,8 @@ function sourceLabel(entry) {
 function entryLabel(entry) {
   if (!entry) return 'Not set';
   const name = entry.device?.productName || 'Device';
-  return `${name} · ${sourceLabel(entry)}`;
+  const suffix = entry.device?.signature ? ` #${entry.device.signature.slice(0, 6)}` : '';
+  return `${name}${suffix} · ${sourceLabel(entry)}`;
 }
 
 async function addDevice(device, options = {}) {
@@ -205,6 +248,7 @@ async function addDevice(device, options = {}) {
     vendorId: device.vendorId,
     productId: device.productId,
     name: device.productName || 'HID device',
+    signature: deviceSignature(device),
     wheel: null,
     generic: null,
     ffb: false
@@ -273,7 +317,19 @@ function handleSessionInput(session) {
     renderWheelVisual();
   }
   if (armed && armed.sessionId === session.id) processCapture(session);
+  flashDevice(session);
   updateLiveInputs();
+}
+
+function flashDevice(session) {
+  const dot = session._activityDot;
+  if (!dot) return;
+  const now = performance.now();
+  if (session._activityAt && now - session._activityAt < 100) return;
+  session._activityAt = now;
+  dot.classList.add('on');
+  clearTimeout(session._activityTimer);
+  session._activityTimer = setTimeout(() => dot.classList.remove('on'), 250);
 }
 
 function beginCapture(scope, key, allowed, rowEl) {
@@ -609,8 +665,9 @@ function renderDeviceList() {
     name.textContent = session.name;
     const meta = document.createElement('div');
     meta.className = 'device-meta';
-    meta.textContent = `${hex(session.vendorId)}:${hex(session.productId)} · ${session.kind === 'wheel' ? 'wheel' : 'HID device'}`;
+    meta.textContent = `${hex(session.vendorId)}:${hex(session.productId)} · ${session.kind === 'wheel' ? 'wheel' : 'HID device'} · #${session.signature.slice(0, 6)}`;
     text.append(name, meta);
+    card.dataset.sessionId = session.id;
 
     const badges = document.createElement('div');
     badges.className = 'device-badges';
@@ -626,6 +683,11 @@ function renderDeviceList() {
       ffbBadge.textContent = 'FFB';
       badges.append(ffbBadge);
     }
+    const activity = document.createElement('span');
+    activity.className = 'device-activity';
+    activity.title = 'Receiving input';
+    badges.append(activity);
+    session._activityDot = activity;
 
     const remove = document.createElement('button');
     remove.className = 'device-remove';
@@ -867,6 +929,7 @@ function buildExport() {
       vendorId: session.vendorId,
       productId: session.productId,
       productName: session.name,
+      signature: session.signature,
       kind: session.kind,
       ffb: session.ffb,
       collections: serializeCollections(session.device),
@@ -907,9 +970,7 @@ async function restoreSavedDevices() {
   try { devices = await navigator.hid.getDevices(); } catch { return; }
   for (const meta of savedDevices) {
     const device = devices.find(item =>
-      item.vendorId === meta.vendorId &&
-      item.productId === meta.productId &&
-      (item.productName || '') === (meta.productName || '') &&
+      deviceMatchesMeta(item, meta) &&
       !sessions.some(session => session.device === item));
     if (device) {
       try { await addDevice(device, { save: false, activate: false }); } catch { /* noop */ }
