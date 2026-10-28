@@ -118,7 +118,9 @@ Mapping entries are plain data:
 Top of page:
 
 - one Connect button
-- device list with type and FFB badge
+- device list with type, FFB badge, descriptor signature and input activity dot
+- signatures distinguish otherwise identical devices
+- the activity dot flashes only when axes/buttons/hats actually change
 - Copy JSON / Download JSON
 
 Tabs:
@@ -186,8 +188,9 @@ On load:
 
 1. Load metadata.
 2. Call `navigator.hid.getDevices()`.
-3. Reattach granted devices.
-4. Show “needs permission” for saved devices that are not granted.
+3. Reattach saved devices by VID/PID/name/signature.
+4. Add any other granted joystick/gamepad devices, even if they were not mapped yet.
+5. Show “needs permission” for saved devices that are not granted.
 
 `HIDDevice` objects are never stored.
 

@@ -311,14 +311,40 @@ async function removeSession(session, keepSaved = false) {
 
 function handleSessionInput(session) {
   if (!sessions.includes(session)) return;
+  const state = sessionState(session);
   if (activeId === session.id) {
     renderDebug(session);
     renderWheelStatus();
     renderWheelVisual();
   }
   if (armed && armed.sessionId === session.id) processCapture(session);
-  flashDevice(session);
+  if (inputActivityChanged(session, state)) flashDevice(session);
   updateLiveInputs();
+}
+
+function inputActivityChanged(session, state) {
+  const previous = session._activityState;
+  const current = {
+    axes: (state.axes || []).slice(),
+    buttons: (state.buttons || []).slice(),
+    hats: (state.hats || []).map(hat => ({ direction: hat.direction, raw: hat.raw }))
+  };
+  session._activityState = current;
+  if (!previous) return true;
+  if (previous.buttons.length !== current.buttons.length) return true;
+  for (let index = 0; index < current.buttons.length; index++) {
+    if (previous.buttons[index] !== current.buttons[index]) return true;
+  }
+  if (previous.hats.length !== current.hats.length) return true;
+  for (let index = 0; index < current.hats.length; index++) {
+    if (previous.hats[index]?.direction !== current.hats[index]?.direction ||
+        previous.hats[index]?.raw !== current.hats[index]?.raw) return true;
+  }
+  if (previous.axes.length !== current.axes.length) return true;
+  for (let index = 0; index < current.axes.length; index++) {
+    if (Math.abs((previous.axes[index] ?? 0) - (current.axes[index] ?? 0)) >= 0.003) return true;
+  }
+  return false;
 }
 
 function flashDevice(session) {
@@ -964,10 +990,16 @@ function downloadExport() {
   setStatus('JSON downloaded.', 'ok');
 }
 
+function isRelevantHidDevice(device) {
+  return (device.collections || []).some(collection =>
+    collection.usagePage === 0x01 && [0x04, 0x05, 0x08].includes(collection.usage));
+}
+
 async function restoreSavedDevices() {
-  if (!savedDevices.length || !navigator.hid?.getDevices) return;
+  if (!navigator.hid?.getDevices) return;
   let devices = [];
   try { devices = await navigator.hid.getDevices(); } catch { return; }
+
   for (const meta of savedDevices) {
     const device = devices.find(item =>
       deviceMatchesMeta(item, meta) &&
@@ -976,6 +1008,13 @@ async function restoreSavedDevices() {
       try { await addDevice(device, { save: false, activate: false }); } catch { /* noop */ }
     }
   }
+
+  for (const device of devices) {
+    if (sessions.some(session => session.device === device)) continue;
+    if (!isRelevantHidDevice(device)) continue;
+    try { await addDevice(device, { save: true, activate: false }); } catch { /* noop */ }
+  }
+
   renderAll();
 }
 
