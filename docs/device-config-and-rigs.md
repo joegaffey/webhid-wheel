@@ -1,263 +1,263 @@
-# Device Config page and optional rigs
+# HID device mapping and capture
 
-Status: proposed / not implemented.
+Status: implemented on `feature/webhid-device-mapping` (2026-10-28).
 
-This document records the agreed direction for multi-device support, user-defined rig profiles, and the evolution of the current demo page into the device configuration page.
+This document describes the current multi-device direction. The earlier
+`WebHIDRig` proposal has been dropped: there is no mandatory rig object and no
+cross-origin profile sharing. Apps compose device sessions themselves and reuse
+the generic device and mapping code from this package.
 
 ## Goals
 
-- Keep `WebHIDWheel` simple for single-wheel apps.
-- Support multi-device setups (wheelbase, button hub, pedals, shifter, handbrake, accessories) through an optional `WebHIDRig` layer.
-- Let users define named rig profiles that work with any app using the library.
-- Make the current page the central **Device Config** page that apps link to instead of implementing their own device management UI.
-- Keep the library free of knowledge about consuming apps.
+- Keep `WebHIDWheel` unchanged for single-wheel apps.
+- Add `WebHIDDevice` for generic HID gamepads, pedals, button boxes and
+  handbrakes.
+- Support multiple devices in one page: wheel, pedals, buttons, shifter.
+- Map raw axes, buttons and POV hats to stable semantic channels.
+- Capture raw input evidence and export it for known-device profiles.
+- Persist device metadata and mappings locally, not raw capture streams.
+- Reuse the same device/mapping code in the demo and in apps.
 
 ## Non-goals
 
-- The library will not identify or store consuming app IDs.
-- Apps will not need to implement device pickers, slot assignment, or channel mapping.
-- Rigs are optional; a one-axis app such as Magnetar should be able to use `WebHIDWheel` without a rig profile.
+- No central Device Config page dependency.
+- No cross-origin profile sharing or postMessage handoff.
+- No mandatory `WebHIDRig` object.
+- No cloud storage.
+- No raw capture persistence in localStorage.
 
-## Architecture
+## Layers
 
-Three layers:
+1. **`WebHIDWheel`** — wheel steering and force feedback. Public API unchanged.
+2. **`WebHIDDevice`** — generic HID input: axes, buttons, POV hats, multiple
+   input reports, descriptor fallback.
+3. **Mapping layer** — pure data plus `mapChannels()`, translating device state
+   to semantic channels.
+4. **Demo page** — device list, mapping tabs, FFB test, raw capture and export.
+5. **Apps** — compose one wheel session and zero or more generic sessions.
 
-1. **Library** — DOM-free profiles, device I/O, optional rig composition, stores.
-2. **Device Config page** — user-facing device management, live preview, FFB testing, profile management, diagnostics.
-3. **Apps** — link to the Device Config page and consume saved settings or rig profiles.
+There is one session per physical `HIDDevice`. The demo never opens the same
+device twice.
 
-`WebHIDWheel` remains the single-device API. `WebHIDRig` composes multiple single-device readers and is used only when an app needs more than one device.
+## Device topology
 
-## Page evolution and hosting
+| Setup | Example | Sessions |
+| --- | --- | --- |
+| Integrated | G29 | One `WebHIDWheel` provides wheel, pedals and buttons |
+| Split | C5 base + button hub + T3PM adapter | One `WebHIDWheel` plus generic `WebHIDDevice` sessions |
+| Hybrid | C5 base + separate pedals + integrated rim buttons | Mixed |
 
-The current page evolves into the Device Config page; it is not a separate demo. It keeps the live steering/button/axis preview and FFB test controls, and adds configuration management.
+Mapping rows reference a device and an input. The same device can provide
+multiple channels.
 
-Apps link to the page. The page is centrally hosted rather than shipped as static assets for every app to host.
+## Device state
 
-Consequences by origin:
+`WebHIDDevice.state`:
 
-- **Same origin** (for example `joegaffey.com/webhid-wheel/` and `joegaffey.com/magnetar/`): `localStorage` and WebHID permissions are shared, so configuration is seamless.
-- **Different origin**: `localStorage` is not shared and WebHID permission is per origin. Profiles can be transferred with export/import, but the app origin must request device permission at least once.
-
-Cross-origin flow for the initial implementation:
-
-1. User configures devices on the Device Config page.
-2. User exports the profile JSON.
-3. App imports the profile.
-4. App requests device permission once.
-5. A config-popup `postMessage` handoff can remove the manual import later.
-
-## Device modes
-
-### Single device
-
-Used by apps that only need a wheelbase (for example Magnetar).
-
-- Select one device.
-- Live input preview.
-- FFB test, strength, inversion, max rotation.
-- Optionally save settings keyed by device signature.
-- No rig profile or slot model.
-
-### Rig
-
-Optional, user-defined, for multi-device setups.
-
-- Create, rename, duplicate, delete, select, export, and import named rig profiles.
-- Assign devices to slots grouped by type.
-- Map inputs to standard semantic channels.
-- Restore assigned devices with `navigator.hid.getDevices()`.
-
-## Standard slot kinds and channels
-
-The library defines the shared vocabulary. This is what lets the same rig profile work in different apps.
-
-| Kind | Channels |
-| --- | --- |
-| `wheel` | `steering`, `rotation`, `buttons` |
-| `pedals` | `throttle`, `brake`, `clutch` |
-| `shifter` | `gearUp`, `gearDown`, `gear1..N`, `reverse` |
-| `handbrake` | `axis` |
-| `buttons` | numbered or named buttons |
-| `aux` | free-form |
-
-Device profiles provide default mappings where known. Users can override channel mappings in their rig profile.
-
-## Profile model
-
-### Device profiles
-
-Owned by the library and hardware vendors. They match devices and describe parsing/FFB.
-
-Planned additions:
-
-- Stable IDs, for example `cammus/c5`, `logitech/dfgt`.
-- Registry operations: register, register pack, get, list, unregister.
-- Instance-scoped profile lists as well as the existing global registry.
-- Declarative profiles for standard devices and trusted code modules for custom protocols.
-
-### Rig profiles
-
-Owned by the user, not by apps. They are portable across apps that use the library.
-
-Example:
-
-```json
+```js
 {
-  "schemaVersion": 1,
-  "id": "rig_01HX...",
-  "name": "My Cammus Rig",
-  "slots": [
-    {
-      "id": "wheel",
-      "kind": "wheel",
-      "device": {
-        "vendorId": 13334,
-        "productId": 769,
-        "productName": "CAMMUS C5 Base",
-        "signature": "usage:1:5|input:1"
-      },
-      "channels": {
-        "steering": "x",
-        "buttons": "1-16"
-      }
-    },
-    {
-      "id": "pedals",
-      "kind": "pedals",
-      "device": {
-        "vendorId": 13334,
-        "productId": 4120,
-        "productName": "CAMMUS CP5",
-        "signature": "usage:1:4|input:1"
-      },
-      "channels": {
-        "throttle": "x",
-        "brake": "y",
-        "clutch": "z"
-      }
-    }
-  ]
+  axes: [0..1],
+  rawAxes: [...],
+  buttons: [bool],
+  hats: [{ raw, x, y, direction }],
+  reports: { [reportId]: [bytes] },
+  timestamp,
+  reportId
 }
 ```
 
-Assignments store match descriptors only, never `HIDDevice` objects. WebHID does not expose a serial number; identical devices may require the user to resolve ambiguity.
+`WebHIDWheel.deviceState` exposes the same generic input state for wheel
+sessions. `WebHIDWheel.state` keeps the wheel-specific steering, rotation,
+buttons, axes and hats.
 
-## Storage
+## Mapping model
 
-User-level, origin-scoped `localStorage` keys:
+### Wheel
+
+- `steering`
+
+### Other axes
+
+- `throttle`
+- `brake`
+- `clutch`
+- `handbrake`
+
+### Buttons
+
+Fixed actions:
 
 ```text
-webhid-wheel:v1:device:<signature>
-webhid-wheel:v1:rigs:<rigId>
-webhid-wheel:v1:rigs:<rigId>:slots:<slotId>
-webhid-wheel:v1:activeRig
+reverse
+neutral
+gear1 .. gear8
+gearUp
+gearDown
+handbrake
+Button 1 .. Button N
 ```
 
-- No app namespace.
-- Same-origin apps share profiles automatically.
-- Per-slot keys reduce cross-tab overwrite conflicts.
-- Cross-origin transfer uses export/import for now.
-- Unavailable storage falls back to in-memory state.
+Numbered `Button N` entries are available for unmapped physical buttons.
+Hat/POV directions map to the same fixed actions.
 
-## Device Config page structure
+Mapping entries are plain data:
+
+```js
+{
+  device: { vendorId, productId, productName },
+  source: 'axis' | 'button' | 'hat',
+  index: number,
+  invert?: boolean,
+  direction?: string,
+  usage?: number
+}
+```
+
+## Demo UI
+
+Top of page:
+
+- one Connect button
+- device list with type and FFB badge
+- Copy JSON / Download JSON
 
 Tabs:
 
-- **Device** — single-device setup, live preview, FFB test/settings.
-- **Rig** — optional named rig profiles, slot assignment, channel mapping.
-- **Diagnostics** — single-device or whole-rig capture.
-- **About/Help** — browser and permission guidance, export/import.
+- **Wheel** — steering mapping, FFB test, strength, invert, max rotation
+- **Other axes** — throttle, brake, clutch, handbrake
+- **Buttons** — fixed actions and numbered default buttons
 
-Within the Rig area, devices are grouped by type:
+Raw capture data is shown in a raw-input panel and included in the export. It is
+not stored in localStorage.
 
-- Wheel
-- Wheel buttons
-- Pedals
-- Shifter
-- Handbrake
-- Accessories
+## Capture flow
 
-Each slot shows the assigned device, connection status, and Assign/Replace/Remove actions. Each Assign click calls `requestDevice()` once because the browser chooser grants one device per call.
+For each mapping row:
+
+1. Select the active device.
+2. Press **Set**.
+3. Move or press the target input.
+4. The page records the device, input type/index, usage, raw min/max and a small
+   set of samples.
+5. The mapping is saved.
+
+The export is one unified document:
+
+```json
+{
+  "kind": "webhid-device-capture",
+  "schemaVersion": 1,
+  "devices": [],
+  "captures": [],
+  "mappings": {
+    "wheel": {},
+    "axes": {},
+    "buttons": {}
+  }
+}
+```
+
+Semantic labels exist only in `mappings`. `devices` and `captures` are raw
+evidence for building known-device profiles.
+
+## Storage
+
+localStorage stores metadata only:
+
+```text
+webhid-wheel:v1:devices
+webhid-wheel:v1:mappings
+webhid-wheel:v1:settings
+```
+
+Stored values:
+
+- device match descriptors, names and FFB capability
+- wheel/axis/button mappings
+- wheel settings
+
+Not stored:
+
+- raw frames
+- raw samples
+- continuous report streams
+
+On load:
+
+1. Load metadata.
+2. Call `navigator.hid.getDevices()`.
+3. Reattach granted devices.
+4. Show “needs permission” for saved devices that are not granted.
+
+`HIDDevice` objects are never stored.
 
 ## App integration
 
-Single-device app:
+Wheel-only app:
 
 ```js
 import { WebHIDWheel } from 'webhid-wheel';
 
-const wheel = new WebHIDWheel({ maxRotation, ffbInvert });
+const wheel = new WebHIDWheel({ maxRotation: 900 });
 await wheel.connect();
 ```
 
-Rig app:
+Wheel plus pedals/buttons:
 
 ```js
-import { RigProfileStore, WebHIDRig } from 'webhid-wheel';
+import { WebHIDWheel, WebHIDDevice, mapChannels } from 'webhid-wheel';
 
-const store = new RigProfileStore();
-const rig = new WebHIDRig({
-  profileId: store.activeId(),
-  store
-});
+const wheel = new WebHIDWheel();
+const pedals = new WebHIDDevice();
+const buttons = new WebHIDDevice();
 
-await rig.restore();
-rig.on('input', state => {
-  state.inputs.wheel.rotation;
-  state.inputs.pedals.channels.throttle;
+await wheel.connect(wheelDevice);
+await pedals.connect(pedalDevice);
+await buttons.connect(buttonDevice);
+
+const channels = mapChannels(pedals.state, {
+  throttle: { source: 'axis', index: 0 },
+  brake: { source: 'axis', index: 1 },
+  clutch: { source: 'axis', index: 2 }
 });
 ```
 
-App flow:
+Apps can persist their own metadata or reuse the demo's storage keys on the same
+origin.
 
-1. Load the saved device settings or active rig profile.
-2. If none exists, link the user to the Device Config page.
-3. On focus, visibility change, or `storage` event, reload configuration.
-4. A minimal rig selector in-app is acceptable, but device assignment and channel mapping stay on the config page.
+## First consumer
 
-Consuming apps:
+Lapster will use:
 
-- **Magnetar** — single-axis game; uses `WebHIDWheel` without a rig profile.
-- **Ghost Driver (experimental)** — capability-based playback that drives an FFB wheel from racing telemetry; consumes wheel state and force commands without app-side model branching.
+- `WebHIDWheel` for the CAMMUS C5 wheel and FFB
+- `WebHIDDevice` for the C5 button hub
+- `WebHIDDevice` for the T3PM adapter
+- mapping for throttle, brake, clutch, gear actions and buttons
 
-## Merged state
+No rig object is involved.
 
-Keep per-slot state and provide stable aggregates:
+## Implementation status
 
-```js
-rig.state.inputs.wheel.rotation
-rig.state.inputs.pedals.axes
-rig.state.inputs.pedals.channels.throttle
-rig.state.buttons      // merged in configured slot order
-rig.state.axes         // merged in configured slot order
-rig.ffb.constant(0.3)  // delegated to the FFB-capable wheel slot
-```
+Done:
 
-## Diagnostics
+- generic HID descriptor parsing with axes, buttons, POV hats and multiple reports
+- `WebHIDDevice`
+- `mapChannels()`
+- device list, FFB badge, unified Connect
+- Wheel / Other axes / Buttons tabs
+- mapping capture with raw min/max/samples
+- metadata-only localStorage
+- unified Copy/Download JSON
+- generic HID tests
 
-- Capture one device or all assigned devices.
-- Emit a JSON document with a `devices` array containing role/kind, profile, capabilities, descriptor, and capture per device.
-- Keep the existing wheel-report flow usable for single-device reports.
+Next:
 
-## Implementation phases
-
-1. Evolve the current page into the Device Config page; keep the live preview.
-2. Add single-device settings and optional persistence.
-3. Add profile IDs and registry operations; expose profile packs.
-4. Add optional rig profiles, standard kinds/channels, and validation.
-5. Add `RigProfileStore` and optional `WebHIDRig` with slot assignment, restore, and merged state.
-6. Add export/import and cross-origin guidance.
-7. Update typings, README, and app-developer documentation.
-8. Optional: config-popup `postMessage` handoff and cross-tab ownership lock via Web Locks.
+- capture C5 base, C5 button hub and T3PM adapter on the rig
+- add known-device profiles and default mappings
+- integrate the sessions into Lapster
+- add a reusable config web component later, using the same APIs
 
 ## Related documents
 
 - [Logitech, Thrustmaster and Fanatec FFB workarounds](./vendor-ffb-workarounds.md)
 - [PadForge wheel bridge for WebHID](./padforge-wheel-bridge.md)
-
-## Open questions
-
-- Should single-device settings auto-apply by device signature, or only when an app explicitly reads them?
-- Keep the Device Config page at the current root URL, or move it to a stable `/config/` path?
-- For cross-origin apps, is export/import plus a one-time permission button acceptable, or should the `postMessage` handoff be planned sooner?
