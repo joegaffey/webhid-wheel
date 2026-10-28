@@ -35,15 +35,15 @@
         padding: 32px 20px 48px;
       }
       #app { max-width: 980px; margin: 0 auto; }
-      header { text-align: center; margin-bottom: 22px; }
+      header { text-align: center; margin-bottom: 18px; }
       header h1 { margin: 0 0 8px; font-size: 1.7rem; letter-spacing: .2px; }
       header p { margin: 0 auto; max-width: 760px; color: var(--muted); font-size: .95rem; }
-      .toolbar { display: flex; gap: 12px; align-items: center; justify-content: center; margin-top: 18px; flex-wrap: wrap; }
+      .toolbar { display: flex; gap: 10px; align-items: center; justify-content: center; margin-top: 16px; flex-wrap: wrap; }
       #connectButton {
         appearance: none; border: 0; cursor: pointer;
         background: linear-gradient(180deg, var(--accent-2), var(--accent));
         color: #08111f; font-weight: 700; font-size: .95rem;
-        padding: 11px 26px; border-radius: 999px;
+        padding: 10px 24px; border-radius: 999px;
         box-shadow: 0 8px 22px rgba(79, 140, 255, .35);
       }
       #connectButton:hover { filter: brightness(1.06); }
@@ -58,19 +58,19 @@
         background: linear-gradient(180deg, var(--panel), var(--panel-2));
         border: 1px solid var(--border);
         border-radius: var(--radius);
-        padding: 18px;
+        padding: 16px;
       }
-      .panel h2 { margin: 0 0 12px; font-size: .78rem; text-transform: uppercase; letter-spacing: .14em; color: var(--muted); font-weight: 700; }
-      .panel + .panel { margin-top: 18px; }
+      .panel h2 { margin: 0 0 10px; font-size: .78rem; text-transform: uppercase; letter-spacing: .14em; color: var(--muted); font-weight: 700; }
+      .panel + .panel { margin-top: 16px; }
       .badge { font-size: .7rem; font-weight: 700; color: var(--accent-2); background: rgba(79, 140, 255, .12); border: 1px solid rgba(79, 140, 255, .3); padding: 2px 9px; border-radius: 999px; }
       .badge.ffb { color: var(--ok); background: rgba(52, 211, 153, .12); border-color: rgba(52, 211, 153, .35); }
       .badge.warn { color: var(--warn); background: rgba(255, 170, 80, .12); border-color: rgba(255, 170, 80, .35); }
-      .device-list { display: grid; gap: 10px; }
+      .device-list { display: grid; gap: 8px; }
       .device-card {
         display: grid; grid-template-columns: 1fr auto auto; gap: 10px; align-items: center;
         width: 100%; text-align: left; cursor: pointer;
         background: #11151d; border: 1px solid var(--border); color: var(--text);
-        border-radius: 10px; padding: 10px 12px;
+        border-radius: 10px; padding: 9px 12px;
       }
       .device-card:hover { border-color: #3a465c; }
       .device-card.active { border-color: var(--accent); box-shadow: inset 0 0 0 1px rgba(79, 140, 255, .35); }
@@ -79,7 +79,7 @@
       .device-badges { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; justify-content: flex-end; }
       .device-remove { background: transparent; border: 1px solid var(--border); color: var(--muted); border-radius: 8px; cursor: pointer; padding: 5px 9px; }
       .device-remove:hover { color: var(--text); border-color: var(--warn); }
-      .tabs { display: flex; gap: 6px; margin: 18px 0 12px; border-bottom: 1px solid var(--border); }
+      .tabs { display: flex; gap: 6px; margin: 14px 0 10px; border-bottom: 1px solid var(--border); }
       .tab {
         appearance: none; background: transparent; border: 0; border-bottom: 2px solid transparent;
         color: var(--muted); cursor: pointer; font: inherit; font-weight: 650; padding: 9px 14px;
@@ -87,26 +87,27 @@
       .tab:hover { color: var(--text); }
       .tab.active { color: var(--accent-2); border-bottom-color: var(--accent); }
       .tab-panel { display: block; }
-      .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+      .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
       @media (max-width: 780px) { .grid { grid-template-columns: 1fr; } }
-      .wheel-svg { display: block; width: 100%; max-width: 340px; height: auto; margin: 0 auto; }
+      .wheel-svg { display: block; width: 100%; max-width: 260px; height: auto; margin: 0 auto; }
       #rim { filter: drop-shadow(0 8px 14px rgba(0, 0, 0, .5)); }
       #rim line, #rim ellipse { fill: none; stroke: url(#rimGrad); stroke-width: 10; stroke-linecap: round; }
       #steerArc { stroke: var(--accent); }
       #angleReadout { fill: var(--muted); font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 15px; }
       .mapping-list { display: grid; gap: 8px; }
       .mapping-row {
-        display: grid; grid-template-columns: 110px minmax(0, 1fr) auto auto; gap: 10px;
+        display: flex; flex-wrap: wrap; gap: 8px 10px;
         align-items: center; padding: 9px 10px; border: 1px solid var(--border); border-radius: 9px; background: #11151d;
       }
-      .mapping-label { font-weight: 650; font-size: .9rem; }
-      .mapping-target { color: var(--muted); font-size: .82rem; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .mapping-label { flex: 0 0 108px; font-weight: 650; font-size: .9rem; }
+      .mapping-target { flex: 1 1 180px; color: var(--muted); font-size: .82rem; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
       .mapping-target.set { color: var(--text); }
-      .mapping-row button { font-size: .8rem; padding: 5px 10px; }
+      .mapping-row button { flex: 0 0 auto; font-size: .8rem; padding: 5px 10px; }
       .mapping-row.armed { border-color: var(--accent); box-shadow: inset 0 0 0 1px rgba(79, 140, 255, .4); }
       .mapping-row .invert { width: 16px; height: 16px; accent-color: var(--accent); }
-      .controls { margin-top: 14px; display: grid; gap: 12px; }
-      .control { display: grid; grid-template-columns: 130px 1fr auto; align-items: center; gap: 12px; }
+      .mapping-row > .hint { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; flex: 0 0 auto; }
+      .controls { margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--border); display: grid; gap: 10px; }
+      .control { display: grid; grid-template-columns: 150px minmax(0, 1fr) 56px; align-items: center; gap: 12px; min-height: 28px; }
       .control label { color: var(--muted); font-size: .88rem; }
       .control .val { font-variant-numeric: tabular-nums; color: var(--text); font-weight: 600; min-width: 46px; text-align: right; }
       .control input[type="checkbox"] { justify-self: start; width: 18px; height: 18px; accent-color: var(--accent); }
@@ -123,8 +124,12 @@
       .dbg-byte { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: .78rem; padding: 2px 6px; border-radius: 5px; background: #151a23; color: #86d3a4; }
       .dbg-byte.chg { background: rgba(79, 140, 255, .22); color: #cfe0ff; box-shadow: inset 0 0 0 1px rgba(79, 140, 255, .55); }
       #exportText { width: 100%; min-height: 160px; margin-top: 12px; resize: vertical; background: #0b0d12; border: 1px solid var(--border); border-radius: 10px; color: #a9e08a; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: .76rem; padding: 10px 12px; }
-      footer { margin-top: 24px; text-align: center; color: var(--muted); font-size: .8rem; }
+      footer { margin-top: 20px; text-align: center; color: var(--muted); font-size: .8rem; }
       a { color: var(--accent-2); }
+          .devices-panel { padding: 14px 16px; }
+      .devices-panel h2 { margin-bottom: 8px; }
+      .devices-panel .hint { margin-top: 8px; }
+      .devices-panel .device-list:empty { display: none; }
     </style>
   </head>
   <body>
@@ -145,7 +150,7 @@
         </div>
       </header>
 
-      <section class="panel">
+      <section class="panel devices-panel">
         <h2>Devices</h2>
         <div id="deviceList" class="device-list"></div>
         <p class="hint" id="deviceHint">Connect a wheel, pedals, button box or handbrake. Each Connect adds one device.</p>
