@@ -40,6 +40,12 @@ function report64(bytes) {
   return b;
 }
 
+function report7(bytes) {
+  const b = new Uint8Array(7);
+  for (let i = 0; i < bytes.length; i++) b[i] = bytes[i] & 0xff;
+  return b;
+}
+
 function parseThrustmaster(data, wheel) {
   wheel.steering = data.getUint8(0) | (data.getUint8(1) << 8);
   wheel.rotation = (wheel.steering / 65535 - 0.5) * wheel.maxRotation;
@@ -421,6 +427,32 @@ function buildPidFfb(device) {
   return { constant: dispatch, constantFast: dispatchFast, stop, info };
 }
 
+function logitechForceLevel(value, wheel) {
+  const strength = (wheel && wheel.ffbStrength !== undefined) ? wheel.ffbStrength : 1;
+  const force = Math.max(-1, Math.min(1, value * strength));
+  return Math.round((force + 1) * 127.5);
+}
+
+function createLogitechClassicFfb() {
+  const send = (device, bytes) => device.sendReport(0, report7(bytes));
+
+  const init = async (device, wheel) => {
+    await send(device, [0xf5, 0, 0, 0, 0, 0, 0]);
+    const range = Math.max(40, Math.min(900, Math.round(wheel.maxRotation)));
+    await send(device, [0xf8, 0x81, range & 0xff, (range >> 8) & 0xff, 0, 0, 0]);
+  };
+
+  const constant = async (device, value, wheel) => {
+    await send(device, [0x11, 0x00, logitechForceLevel(value, wheel), 0, 0, 0, 0]);
+  };
+
+  const stop = async (device) => {
+    await send(device, [0x13, 0, 0, 0, 0, 0, 0]);
+  };
+
+  return { init, constant, constantFast: constant, stop };
+}
+
 const defaultProfiles = [
   {
     name: 'Thrustmaster FFB wheel (T248 / T300RS)',
@@ -428,9 +460,20 @@ const defaultProfiles = [
     parse: parseThrustmaster
   },
   {
+    name: 'Logitech G29 Driving Force',
+    vendorId: 0x046d,
+    productIds: [0xc24f, 0xc260],
+    maxRotation: 900,
+    ffb: createLogitechClassicFfb()
+  },
+  {
     name: 'Logitech Driving Force GT',
+    vendorId: 0x046d,
+    productId: 0xc29a,
+    maxRotation: 900,
     match: /driving force gt/i,
-    parse: parseLogitechDFGT
+    parse: parseLogitechDFGT,
+    ffb: createLogitechClassicFfb()
   },
   {
     name: 'CAMMUS C5',
@@ -466,9 +509,12 @@ const defaultProfiles = [
 const registeredProfiles = defaultProfiles.slice();
 
 function profileMatches(profile, device) {
-  if (profile.vendorId !== undefined && device.vendorId === profile.vendorId &&
-      (profile.productId === undefined || device.productId === profile.productId)) {
-    return true;
+  if (profile.vendorId !== undefined && device.vendorId === profile.vendorId) {
+    const hasProductId = profile.productId !== undefined;
+    const hasProductIds = profile.productIds && profile.productIds.length > 0;
+    if (!hasProductId && !hasProductIds) return true;
+    if (hasProductId && device.productId === profile.productId) return true;
+    if (hasProductIds && profile.productIds.includes(device.productId)) return true;
   }
   return !!(profile.match && profile.match.test(device.productName || ''));
 }
@@ -567,6 +613,11 @@ export class WebHIDWheel {
       constantFast: (value) => this.setConstantForceFast(value),
       stop: () => this.stopEffects()
     };
+
+    if (this.profile && this.profile.ffb && this.profile.ffb.init) {
+      try { await this.profile.ffb.init(this.device, this); }
+      catch (e) { this.emit('error', e); }
+    }
 
     this.device.oninputreport = (report) => this.processWheelReport(report);
     this.emit('connect', this.device);

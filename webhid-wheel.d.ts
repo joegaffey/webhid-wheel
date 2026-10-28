@@ -37,6 +37,8 @@ export interface WheelFfb {
 }
 
 export interface WheelFfbProfile {
+  /** Optional one-time device setup after connect. */
+  init?: (device: HIDDevice, wheel: WebHIDWheel) => Promise<void>;
   constant?: (device: HIDDevice, value: number, wheel: WebHIDWheel) => Promise<void>;
   constantFast?: (device: HIDDevice, value: number, wheel: WebHIDWheel) => Promise<void>;
   periodic?: (device: HIDDevice, value: number, wheel: WebHIDWheel) => Promise<void>;
@@ -52,6 +54,8 @@ export interface WheelProfile {
   vendorId?: number;
   /** Optional, alongside `vendorId`. */
   productId?: number;
+  /** Optional product IDs matched alongside `vendorId`. */
+  productIds?: number[];
   /** Default lock-to-lock range for this wheel, unless `maxRotation` is passed to the constructor. */
   maxRotation?: number;
   /** Maps a raw input report onto `wheel` state. */
