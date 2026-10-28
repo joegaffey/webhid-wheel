@@ -301,13 +301,15 @@ function beginCapture(scope, key, allowed, rowEl) {
     baseline: sessionState(session),
     lastButtons: sessionState(session).buttons.slice(),
     lastHats: sessionState(session).hats.map(hat => hat.direction),
+    lastAxes: sessionState(session).axes.slice(),
+    lastRawAxes: sessionState(session).rawAxes.slice(),
     axisIndex: null,
     rawMin: Infinity,
     rawMax: -Infinity,
     samples: [],
     result: null,
     timer: null,
-    timeout: setTimeout(() => cancelCapture('Capture timed out'), 8000)
+    timeout: setTimeout(() => cancelCapture('No axis or button movement detected'), 15000)
   };
   rowEl?.classList.add('armed');
   setStatus(`Listening on ${session.name}. Move or press the input for ${scope === 'wheel' ? 'steering' : actionLabel(key)}.`);
@@ -337,25 +339,36 @@ function processCapture(session) {
   }
 
   if (!armed.allowed.includes('axis')) return;
+
+  let changed = false;
+  for (let index = 0; index < state.rawAxes.length; index++) {
+    if (state.rawAxes[index] !== armed.lastRawAxes[index]) { changed = true; break; }
+  }
+  armed.lastAxes = state.axes.slice();
+  armed.lastRawAxes = state.rawAxes.slice();
+  if (!changed) return;
+
   let bestIndex = -1;
   let bestDelta = 0;
   for (let index = 0; index < state.axes.length; index++) {
     const delta = Math.abs((state.axes[index] ?? 0) - (baseline.axes[index] ?? 0));
     if (delta > bestDelta) { bestDelta = delta; bestIndex = index; }
   }
-  if (bestIndex < 0 || bestDelta < 0.04) return;
+  if (bestIndex < 0 || bestDelta < 0.0005) return;
 
   if (armed.axisIndex !== bestIndex) {
     armed.axisIndex = bestIndex;
     armed.rawMin = Infinity;
     armed.rawMax = -Infinity;
     armed.samples = [];
+    setStatus(`Detected Axis ${bestIndex + 1} on ${session.name}. Release the input to finish.`, 'ok');
   }
   const raw = state.rawAxes[bestIndex];
   armed.rawMin = Math.min(armed.rawMin, raw);
   armed.rawMax = Math.max(armed.rawMax, raw);
   if (!armed.samples.includes(raw)) armed.samples.push(raw);
-  if (!armed.timer) armed.timer = setTimeout(() => finishCapture(), 1400);
+  if (armed.timer) clearTimeout(armed.timer);
+  armed.timer = setTimeout(() => finishCapture(), 1200);
 }
 
 function finishCapture(result = null) {
@@ -460,6 +473,43 @@ function mappingRow(scope, key, label, allowed, options = {}) {
   clearButton.addEventListener('click', () => clearMapping(scope, key));
 
   row.append(labelEl, targetEl, setButton, clearButton);
+
+  if (options.pickAxis) {
+    const session = scope === 'wheel' ? activeWheel() : activeSession();
+    const layout = sessionLayout(session);
+    if (session && layout.axes.length) {
+      const select = document.createElement('select');
+      select.className = 'axis-pick';
+      select.title = 'Pick an axis directly';
+      const placeholder = document.createElement('option');
+      placeholder.value = '';
+      placeholder.textContent = 'Pick axis…';
+      select.append(placeholder);
+      layout.axes.forEach((axis, index) => {
+        const option = document.createElement('option');
+        option.value = String(index);
+        option.textContent = `Axis ${index + 1} · ${hex(axis.usage, 5)}`;
+        select.append(option);
+      });
+      if (entry && entry.source === 'axis') select.value = String(entry.index);
+      select.addEventListener('change', () => {
+        if (select.value === '') return;
+        const index = Number(select.value);
+        const axis = layout.axes[index];
+        mapping[scope][key] = {
+          device: deviceMeta(session),
+          source: 'axis',
+          index,
+          usage: axis?.usage,
+          invert: entry?.invert || false
+        };
+        captures = captures.filter(item => !(item.scope === scope && item.key === key));
+        saveMappings();
+        renderAll();
+      });
+      row.append(select);
+    }
+  }
 
   if (options.invertable && entry && entry.source === 'axis') {
     const invertWrap = document.createElement('label');
@@ -566,13 +616,13 @@ function renderWheelMappings() {
     return;
   }
   els.wheelHint.textContent = `${wheel.name}${wheel.ffb ? ' · force feedback available' : ' · no force feedback'}`;
-  els.wheelMappings.append(mappingRow('wheel', 'steering', 'Steering', ['axis'], { invertable: false }));
+  els.wheelMappings.append(mappingRow('wheel', 'steering', 'Steering', ['axis'], { invertable: false, pickAxis: true }));
 }
 
 function renderAxesMappings() {
   els.axesMappings.replaceChildren();
   for (const row of AXIS_ROWS) {
-    els.axesMappings.append(mappingRow('axes', row.key, row.label, ['axis'], { invertable: true }));
+    els.axesMappings.append(mappingRow('axes', row.key, row.label, ['axis'], { invertable: true, pickAxis: true }));
   }
 }
 
