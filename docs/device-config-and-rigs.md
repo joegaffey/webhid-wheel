@@ -253,7 +253,8 @@ rig.ffb.constant(0.3)  // delegated to the FFB-capable wheel slot
 
 ## Related documents
 
-- [Logitech and Fanatec FFB workarounds](./vendor-ffb-workarounds.md)
+- [Logitech, Thrustmaster and Fanatec FFB workarounds](./vendor-ffb-workarounds.md)
+- [PadForge wheel bridge for WebHID](./padforge-wheel-bridge.md)
 
 ## Open questions
 

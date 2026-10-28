@@ -1,8 +1,8 @@
-# Logitech and Fanatec FFB workarounds
+# Logitech, Thrustmaster and Fanatec FFB workarounds
 
-Status: research notes / not implemented.
+Status: classic Logitech constant force is implemented for G29 and Driving Force GT. T248 direct WebHID is blocked on Windows; the PadForge bridge is documented in [PadForge wheel bridge for WebHID](./padforge-wheel-bridge.md). Fanatec and Logitech HID++ models remain research notes.
 
-This document records what would be needed to support force feedback for Logitech and Fanatec wheelbases over WebHID. Neither vendor uses the standard USB HID PID path that CAMMUS and Moza expose, so the generic PID implementation will not provide FFB for them.
+This document records what would be needed to support force feedback for Logitech, Thrustmaster and Fanatec wheelbases over WebHID. These vendors do not expose the standard USB HID PID path that CAMMUS and Moza expose, so the generic PID implementation will not provide FFB for them.
 
 ## Summary
 
@@ -11,9 +11,42 @@ This document records what would be needed to support force feedback for Logitec
 | Logitech G25/G27/G29/DFGT/MOMO/DFP | Generic likely | Vendor FF protocol | Custom FFB profile using vendor output reports |
 | Logitech G923 PS | Generic likely | Vendor FF protocol + TrueForce | Custom FFB profile; TrueForce extra |
 | Logitech G920/G923 Xbox/G Pro | Generic likely | HID++ | HID++ feature discovery and vendor reports |
+| Thrustmaster T248 | Generic | Vendor protocol, report `0x60` | Blocked in WebHID on Windows; use the PadForge bridge or Linux `hid-tmff2` |
 | Fanatec CSL/DD/Podium/CSR | Generic or fixed-offset | Vendor protocol | Custom FFB profile ported from `hid-fanatecff` |
 
 The common workaround is a per-device `ffb` profile with `init`, `constant`, and `stop` hooks that speak the vendor protocol directly. The generic USB-PID path should not be used for these devices.
+
+## Thrustmaster T248
+
+Direct T248 FFB over WebHID does not work on Windows:
+
+- PC mode exposes `044f:b696`; PS4 mode exposes `044f:b66d`.
+- The exposed output reports are `0x0A` (PC) and `0x05` (PS4), but the firmware ignores force commands sent through them.
+- The real force channel is report `0x60`, a 64-byte interrupt-OUT frame. WebHID rejects `0x60` and report `0`.
+- The T248 open command sent through the exposed reports resets/re-enumerates the wheel.
+
+The current Windows workaround is to run PadForge with its HIDMaestro virtual HID-PID wheel and let PadForge drive the T248 through its native Thrustmaster writer. The bridge is not T248-specific; it applies to other wheels PadForge can read and drive. The full findings and configuration steps are in [PadForge wheel bridge for WebHID](./padforge-wheel-bridge.md).
+
+On Linux, `hid-tmff2` can rewrite the descriptor to expose report `0x60`, which may make direct WebHID possible. That path has not yet been verified on hardware.
+
+## Implemented: G29 and Driving Force GT
+
+The classic Logitech path is implemented for:
+
+- Logitech G29 (`046d:c24f`, `046d:c260`)
+- Logitech Driving Force GT (`046d:c29a`)
+
+On connect, the profile disables autocenter and sets the hardware range (clamped to 40–900°). Constant force uses the classic Download-and-Play report with one force byte, so `constantFast()` needs only one report per update. Stop sends the classic Stop Force command.
+
+Implementation notes:
+
+- Payloads are 7 bytes on report ID `0`.
+- Constant force: `11 00 <level> 00 00 00 00`, where level 0 is full clockwise, 128 is neutral and 255 is full counter-clockwise.
+- Stop force: `13 00 00 00 00 00 00`.
+- Range: `f8 81 <lo> <hi> 00 00 00`.
+- Autocenter off: `f5 00 00 00 00 00 00`.
+- Do not use the compatibility-mode-switch commands during normal operation; they can detach and re-enumerate the wheel with a different product ID.
+- G920 and G923 Xbox use HID++ and are not covered by this path.
 
 ## Logitech
 
@@ -99,7 +132,8 @@ These workarounds need small additions to the library/profile model:
 
 - WebHID exposes HID input/output/feature reports, but not arbitrary USB control transfers.
 - Both Logitech and Fanatec constant-force paths appear to use HID reports, so they are plausible in the browser.
-- If any required vendor path uses a control transfer that is not exposed through HID reports, WebHID cannot implement it.
+- The T248 is a counterexample: its force channel is report `0x60`, which the device descriptor exposed to WebHID as `0x0A`/`0x05`, so the browser cannot address it even though the wire path is HID.
+- If any required vendor path uses a control transfer or a report ID that is not exposed to HID clients, WebHID cannot implement it.
 - WebHID permission is per origin. Vendor software and the browser may compete for the device; close vendor software during testing.
 - A mode switch that re-enumerates the device requires handling `navigator.hid` connect/disconnect events and re-opening the new device.
 

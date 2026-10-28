@@ -9,7 +9,7 @@ Plug the wheelbase in over USB, click **Connect**, and pick it from the browser'
 ## Features
 
 - **Input** — steering, buttons and pedals from any HID wheel, using a small per-model profile registry with a generic **HID-descriptor fallback** for unknown wheels.
-- **Force feedback** — constant force where the device supports it: built-in CAMMUS C5/C12 and FFBeast profiles, plus automatic **USB-PID** detection for compliant devices. `constantFast()` reuses the running effect for high-rate updates. Includes force inversion and is safe by default (low strength, explicit stop).
+- **Force feedback** — constant force where the device supports it: built-in CAMMUS C5/C12, FFBeast and classic Logitech (G29 / Driving Force GT) profiles, plus automatic **USB-PID** detection for compliant devices. `constantFast()` reuses the running effect for high-rate updates. Includes force inversion and is safe by default (low strength, explicit stop).
 - **Diagnostics** — capture a wheel's descriptor + a guided input sweep and file a one-click **wheel report** to grow the registry.
 
 ## Device Config page and optional rigs
@@ -66,8 +66,10 @@ WebHIDWheel.registerProfile({
 
 | Wheel | Input | FFB |
 | --- | --- | --- |
-| Thrustmaster T248 / T300RS | steering, buttons | — |
-| Logitech Driving Force GT | steering, buttons | — |
+| Thrustmaster T248 | steering, buttons, axes (generic) | — direct WebHID; [PadForge bridge](./docs/padforge-wheel-bridge.md) on Windows |
+| Thrustmaster T300RS | steering, buttons | — |
+| Logitech G29 (`c24f`, `c260`) | steering, buttons, axes | constant force (classic Logitech) |
+| Logitech Driving Force GT | steering, buttons | constant force (classic Logitech) |
 | CAMMUS C5 | steering, buttons, axes | constant force (USB-PID, verified) |
 | CAMMUS C12 | steering, buttons, axes | constant force (USB-PID) |
 | FFBeast | steering | constant force |
@@ -76,7 +78,9 @@ WebHIDWheel.registerProfile({
 
 CAMMUS C5 is verified on Windows 11 with Chrome. If force pulls the wrong way, tick **Invert Force** in the demo or set `ffbInvert: true`.
 
-Logitech and Fanatec wheels generally do not expose standard USB-PID FFB, so they will need vendor-specific profiles. See [Logitech and Fanatec FFB workarounds](./docs/vendor-ffb-workarounds.md) for the likely implementation path.
+G29 and Driving Force GT use Logitech's classic force-feedback protocol. G920, G923 Xbox and Fanatec wheels still need separate profiles; see [Logitech, Thrustmaster and Fanatec FFB workarounds](./docs/vendor-ffb-workarounds.md).
+
+The T248 exposes force feedback on a vendor report that WebHID cannot send. On Windows, PadForge can expose a virtual HID-PID wheel and forward its force feedback to the T248. The same bridge pattern works for other native-FFB wheels PadForge can drive; see [PadForge wheel bridge for WebHID](./docs/padforge-wheel-bridge.md).
 
 Got an unsupported wheel? Open the demo, click **Gather diagnostics** (turn full-lock, press every button), then **Open issue** and paste the JSON.
 
