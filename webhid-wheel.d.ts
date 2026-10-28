@@ -22,16 +22,23 @@ export interface WheelFfb {
   /** Which effects this wheel supports. */
   supported: FfbCapabilities;
   /**
-   * Apply a constant force.
+   * Apply a constant force. Sets up the effect on every call.
    * @param value normalized force in the range -1 to +1.
    */
   constant(value: number): Promise<void>;
+  /**
+   * Apply a constant force, reusing the running effect after the first call.
+   * Falls back to full setup when no fast path is available.
+   * @param value normalized force in the range -1 to +1.
+   */
+  constantFast(value: number): Promise<void>;
   /** Stop all force feedback effects. */
   stop(): Promise<void>;
 }
 
 export interface WheelFfbProfile {
   constant?: (device: HIDDevice, value: number, wheel: WebHIDWheel) => Promise<void>;
+  constantFast?: (device: HIDDevice, value: number, wheel: WebHIDWheel) => Promise<void>;
   periodic?: (device: HIDDevice, value: number, wheel: WebHIDWheel) => Promise<void>;
   stop?: (device: HIDDevice, wheel: WebHIDWheel) => Promise<void>;
 }
@@ -117,6 +124,7 @@ export declare class WebHIDWheel {
   deadzone: number;
 
   setConstantForce(value: number): Promise<void>;
+  setConstantForceFast(value: number): Promise<void>;
   stopEffects(): Promise<void>;
 }
 

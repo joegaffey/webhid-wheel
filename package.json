@@ -17,6 +17,9 @@
     "webhid-wheel.js",
     "webhid-wheel.d.ts"
   ],
+  "scripts": {
+    "test": "node --test"
+  },
   "keywords": [
     "webhid",
     "hid",

@@ -67,7 +67,7 @@ document.getElementById('connectButton').addEventListener('click', async () => {
   const forceValueEl = document.getElementById('forceValue');
   forceInput.oninput = () => {
     forceValueEl.textContent = forceInput.value;
-    wheel.setConstantForce(parseInt(forceInput.value) / 100).catch(showFfbError);
+    wheel.setConstantForceFast(parseInt(forceInput.value) / 100).catch(showFfbError);
   };
   forceInput.onchange = () => {
     forceInput.value = 0;
@@ -80,14 +80,14 @@ document.getElementById('connectButton').addEventListener('click', async () => {
   strengthInput.oninput = () => {
     wheel.ffbStrength = parseInt(strengthInput.value) / 100;
     strengthValueEl.textContent = strengthInput.value;
-    wheel.setConstantForce(parseInt(forceInput.value) / 100).catch(showFfbError);
+    wheel.setConstantForceFast(parseInt(forceInput.value) / 100).catch(showFfbError);
   };
   const invertInput = document.getElementById('invertFfb');
   invertInput.checked = !!wheel.ffbInvert;
   invertInput.onchange = () => {
     wheel.ffbInvert = invertInput.checked;
     if (parseInt(forceInput.value) !== 0) {
-      wheel.setConstantForce(parseInt(forceInput.value) / 100).catch(showFfbError);
+      wheel.setConstantForceFast(parseInt(forceInput.value) / 100).catch(showFfbError);
     }
   };
   const stopFfbButton = document.getElementById('stopFfb');

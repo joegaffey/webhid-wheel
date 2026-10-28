@@ -9,7 +9,7 @@ Plug the wheelbase in over USB, click **Connect**, and pick it from the browser'
 ## Features
 
 - **Input** — steering, buttons and pedals from any HID wheel, using a small per-model profile registry with a generic **HID-descriptor fallback** for unknown wheels.
-- **Force feedback** — constant force where the device supports it: built-in CAMMUS C5/C12 and FFBeast profiles, plus automatic **USB-PID** detection for compliant devices. Includes force inversion and is safe by default (low strength, explicit stop).
+- **Force feedback** — constant force where the device supports it: built-in CAMMUS C5/C12 and FFBeast profiles, plus automatic **USB-PID** detection for compliant devices. `constantFast()` reuses the running effect for high-rate updates. Includes force inversion and is safe by default (low strength, explicit stop).
 - **Diagnostics** — capture a wheel's descriptor + a guided input sweep and file a one-click **wheel report** to grow the registry.
 
 ## Device Config page and optional rigs
@@ -43,6 +43,7 @@ wheel.isConnected;                // boolean
 wheel.ffb.supported;              // { constant, periodic, any }
 wheel.ffbInvert = true;           // flip force direction if the wheel pulls the wrong way
 await wheel.ffb.constant(0.3);    // -1..1, strength applied internally
+await wheel.ffb.constantFast(0.4); // reuse the running effect for high-rate updates
 await wheel.ffb.stop();
 
 await wheel.disconnect();
