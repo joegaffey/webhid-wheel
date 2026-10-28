@@ -273,6 +273,7 @@ function handleSessionInput(session) {
     renderWheelVisual();
   }
   if (armed && armed.sessionId === session.id) processCapture(session);
+  updateLiveInputs();
 }
 
 function beginCapture(scope, key, allowed, rowEl) {
@@ -383,6 +384,7 @@ function finishCapture(result = null) {
   const layout = sessionLayout(session);
   const entry = {
     device: deviceMeta(session),
+    sessionId: session.id,
     source: source.source,
     index: source.index,
     invert: false
@@ -444,6 +446,50 @@ function setInvert(scope, key, invert) {
   saveMappings();
 }
 
+function findEntrySession(entry) {
+  if (!entry) return null;
+  if (entry.sessionId) {
+    const byId = sessions.find(session => session.id === entry.sessionId);
+    if (byId) return byId;
+  }
+  return sessions.find(session => sameDeviceMeta(deviceMeta(session), entry.device)) || null;
+}
+
+function entryIsPressed(entry, state) {
+  if (!entry || !state) return false;
+  if (entry.source === 'button') return !!state.buttons[entry.index];
+  if (entry.source === 'hat') return state.hats[entry.index]?.direction === entry.direction;
+  return false;
+}
+
+function updateLiveInputs() {
+  document.querySelectorAll('.mapping-row').forEach(row => {
+    const [scope, key] = row.dataset.key.split(':');
+    const entry = mapping[scope]?.[key];
+    const stateEl = row.querySelector('.mapping-state');
+    if (stateEl) {
+      const session = findEntrySession(entry);
+      stateEl.classList.toggle('on', entryIsPressed(entry, session ? sessionState(session) : null));
+    }
+    const slider = row.querySelector('.live-axis');
+    if (!slider) return;
+    const valueEl = row.querySelector('.live-axis-value');
+    const session = findEntrySession(entry);
+    if (!entry || !session || entry.source !== 'axis') {
+      slider.value = 0;
+      slider.disabled = true;
+      if (valueEl) valueEl.textContent = '—';
+      return;
+    }
+    const state = sessionState(session);
+    let value = state.axes[entry.index] ?? 0;
+    if (entry.invert) value = 1 - value;
+    slider.disabled = false;
+    slider.value = String(Math.max(0, Math.min(1, value)));
+    if (valueEl) valueEl.textContent = `${Math.round(Math.max(0, Math.min(1, value)) * 100)}%`;
+  });
+}
+
 function mappingRow(scope, key, label, allowed, options = {}) {
   const row = document.createElement('div');
   row.className = 'mapping-row';
@@ -474,6 +520,13 @@ function mappingRow(scope, key, label, allowed, options = {}) {
 
   row.append(labelEl, targetEl, setButton, clearButton);
 
+  if (entry && entry.source !== 'axis') {
+    const stateEl = document.createElement('span');
+    stateEl.className = 'mapping-state';
+    stateEl.title = 'Mapped input';
+    row.append(stateEl);
+  }
+
   if (options.pickAxis) {
     const session = scope === 'wheel' ? activeWheel() : activeSession();
     const layout = sessionLayout(session);
@@ -498,6 +551,7 @@ function mappingRow(scope, key, label, allowed, options = {}) {
         const axis = layout.axes[index];
         mapping[scope][key] = {
           device: deviceMeta(session),
+          sessionId: session.id,
           source: 'axis',
           index,
           usage: axis?.usage,
@@ -521,6 +575,25 @@ function mappingRow(scope, key, label, allowed, options = {}) {
     input.addEventListener('change', () => setInvert(scope, key, input.checked));
     invertWrap.append(input, ' Invert');
     row.append(invertWrap);
+  }
+
+  if (entry && entry.source === 'axis') {
+    const live = document.createElement('div');
+    live.className = 'mapping-live';
+    const slider = document.createElement('input');
+    slider.type = 'range';
+    slider.className = 'live-axis';
+    slider.min = '0';
+    slider.max = '1';
+    slider.step = '0.001';
+    slider.value = '0';
+    slider.disabled = true;
+    slider.setAttribute('aria-label', `${label} live value`);
+    const value = document.createElement('span');
+    value.className = 'live-axis-value';
+    value.textContent = '—';
+    live.append(slider, value);
+    row.append(live);
   }
   return row;
 }
@@ -730,6 +803,7 @@ function renderAll() {
     lastDebugKey = 'empty';
     lastDebugValues = null;
   }
+  updateLiveInputs();
 }
 
 function polar(cx, cy, r, deg) {

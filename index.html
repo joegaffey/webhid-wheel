@@ -107,7 +107,15 @@
       .mapping-row.armed { border-color: var(--accent); box-shadow: inset 0 0 0 1px rgba(79, 140, 255, .4); }
       .mapping-row .invert { width: 16px; height: 16px; accent-color: var(--accent); }
       .mapping-row > .hint { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; flex: 0 0 auto; }
-      .axis-pick { background: #0b0d12; color: var(--text); border: 1px solid var(--border); border-radius: 8px; padding: 5px 8px; font: inherit; font-size: .8rem; max-width: 150px; }
+            .axis-pick { background: #0b0d12; color: var(--text); border: 1px solid var(--border); border-radius: 8px; padding: 5px 8px; font: inherit; font-size: .8rem; max-width: 150px; }
+      .mapping-state { width: 10px; height: 10px; border-radius: 50%; background: #2b3240; border: 1px solid var(--border); flex: 0 0 auto; margin-left: auto; }
+      .mapping-state.on { background: var(--ok); border-color: var(--ok); box-shadow: 0 0 8px rgba(52, 211, 153, .7); }
+      .mapping-live { flex: 1 0 100%; display: flex; align-items: center; gap: 10px; margin-top: 2px; }
+      .mapping-live input[type="range"] { flex: 1; height: 4px; }
+      .mapping-live input[type="range"]:disabled { opacity: 1; }
+      .mapping-live input[type="range"]::-webkit-slider-thumb { width: 14px; height: 14px; }
+      .mapping-live input[type="range"]::-moz-range-thumb { width: 12px; height: 12px; }
+      .live-axis-value { min-width: 42px; text-align: right; color: var(--muted); font-variant-numeric: tabular-nums; font-size: .8rem; }
       .controls { margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--border); display: grid; gap: 10px; }
       .control { display: grid; grid-template-columns: 150px minmax(0, 1fr) 56px; align-items: center; gap: 12px; min-height: 28px; }
       .control label { color: var(--muted); font-size: .88rem; }
