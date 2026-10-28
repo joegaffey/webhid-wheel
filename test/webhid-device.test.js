@@ -37,6 +37,12 @@ function makeDescriptor() {
         items: [
           item([usage(0x01, 0x36)], 8, 1, { max: 255 })
         ]
+      },
+      {
+        reportId: 3,
+        items: [
+          item([usage(0x02, 0xba)], 16, 1, { max: 1023 })
+        ]
       }
     ],
     outputReports: [],
@@ -68,7 +74,7 @@ test('generic HID device parses axes, hats, buttons and multiple reports', async
   const input = new WebHIDDevice();
   await input.connect(device);
 
-  assert.equal(input.inputLayout.axes.length, 3);
+  assert.equal(input.inputLayout.axes.length, 4);
   assert.equal(input.inputLayout.buttons.length, 8);
   assert.equal(input.inputLayout.hats.length, 1);
 
@@ -86,6 +92,11 @@ test('generic HID device parses axes, hats, buttons and multiple reports', async
   state = input.state;
   assert.equal(state.rawAxes[2], 255);
   assert.equal(state.axes[2], 1);
+
+  device.oninputreport(report(3, [0x00, 0x02]));
+  state = input.state;
+  assert.equal(state.rawAxes[3], 512);
+  assert.ok(Math.abs(state.axes[3] - 512 / 1023) < 0.01);
 });
 
 test('channel mapping supports axes, buttons, hats and inversion', () => {

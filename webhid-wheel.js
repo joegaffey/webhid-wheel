@@ -173,7 +173,7 @@ function buildGenericDeviceLayout(device) {
         const id = first & 0xffff;
 
         if (!item.isConstant && size > 0 && count > 0) {
-          if (page === 0x01 && GENERIC_AXIS_IDS.has(id) && count === 1) {
+          if (((page === 0x01 && GENERIC_AXIS_IDS.has(id)) || (page === 0x02 && size >= 8)) && count === 1) {
             const axis = {
               index: axisIndex++, reportId: report.reportId, offset, size,
               min: item.logicalMinimum, max: item.logicalMaximum, usage: first

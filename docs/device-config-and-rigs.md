@@ -66,6 +66,10 @@ multiple channels.
 }
 ```
 
+Axes are read from the Generic Desktop page (`0x01`) and the Simulation
+Controls page (`0x02`), which is used by some Arduino and pedal devices for
+throttle, brake, clutch or handbrake fields.
+
 `WebHIDWheel.deviceState` exposes the same generic input state for wheel
 sessions. `WebHIDWheel.state` keeps the wheel-specific steering, rotation,
 buttons, axes and hats.

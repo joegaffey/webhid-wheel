@@ -218,7 +218,7 @@ function actionLabel(key) {
 
 function sourceLabel(entry) {
   if (!entry) return '';
-  if (entry.source === 'axis') return `Axis ${entry.index + 1}${entry.invert ? ' (inverted)' : ''}`;
+  if (entry.source === 'axis') return `Axis ${entry.index + 1}${entry.usage ? ` · ${hex(entry.usage, 5)}` : ''}${entry.invert ? ' (inverted)' : ''}`;
   if (entry.source === 'button') return `Button ${entry.index + 1}`;
   if (entry.source === 'hat') return `Hat ${entry.index + 1} ${entry.direction}`;
   return entry.source;
