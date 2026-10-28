@@ -151,6 +151,152 @@ function parseGeneric(data, wheel) {
   });
 }
 
+const GENERIC_AXIS_IDS = new Set([0x30, 0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38]);
+
+const HAT_DIRECTIONS = ['up', 'up-right', 'right', 'down-right', 'down', 'down-left', 'left', 'up-left'];
+
+function buildGenericDeviceLayout(device) {
+  const layout = { reports: [], axes: [], buttons: [], hats: [] };
+  let axisIndex = 0, buttonIndex = 0, hatIndex = 0;
+
+  for (const collection of device.collections) {
+    for (const report of (collection.inputReports || [])) {
+      const entry = { id: report.reportId, len: 0, fields: [] };
+      let offset = 0;
+
+      for (const item of (report.items || [])) {
+        const size = item.reportSize || 0;
+        const count = item.reportCount || 0;
+        const usages = item.usages || [];
+        const first = usages[0] || 0;
+        const page = first >>> 16;
+        const id = first & 0xffff;
+
+        if (!item.isConstant && size > 0 && count > 0) {
+          if (page === 0x01 && GENERIC_AXIS_IDS.has(id) && count === 1) {
+            const axis = {
+              index: axisIndex++, reportId: report.reportId, offset, size,
+              min: item.logicalMinimum, max: item.logicalMaximum, usage: first
+            };
+            layout.axes.push(axis);
+            entry.fields.push({ type: 'axis', ...axis });
+          } else if (page === 0x01 && id === 0x39 && count === 1) {
+            const hat = {
+              index: hatIndex++, reportId: report.reportId, offset, size,
+              min: item.logicalMinimum, max: item.logicalMaximum, usage: first
+            };
+            layout.hats.push(hat);
+            entry.fields.push({ type: 'hat', ...hat });
+          } else if (size === 1 && (page === 0x09 || item.isRange || (!usages.length && count > 1))) {
+            for (let b = 0; b < count; b++) {
+              const button = {
+                index: buttonIndex++, reportId: report.reportId,
+                offset: offset + b * size, usage: usages[b] || first
+              };
+              layout.buttons.push(button);
+              entry.fields.push({ type: 'button', ...button });
+            }
+          }
+        }
+
+        offset += size * count;
+      }
+
+      entry.len = Math.ceil(offset / 8);
+      layout.reports.push(entry);
+    }
+  }
+
+  return layout;
+}
+
+function createDeviceState(layout) {
+  return {
+    axes: new Array(layout.axes.length).fill(0),
+    rawAxes: new Array(layout.axes.length).fill(0),
+    buttons: new Array(layout.buttons.length).fill(false),
+    hats: layout.hats.map(() => ({ raw: null, x: 0, y: 0, direction: null })),
+    reports: {},
+    timestamp: 0,
+    reportId: null
+  };
+}
+
+function applyGenericReport(state, layout, report) {
+  const data = report.data;
+  const serialized = Array.from(new Uint8Array(data.buffer, data.byteOffset, data.byteLength));
+
+  state.reports[report.reportId] = serialized;
+  state.timestamp = report.timeStamp || performance.now();
+  state.reportId = report.reportId;
+
+  for (const axis of layout.axes) {
+    if (axis.reportId !== report.reportId) continue;
+    const raw = readFieldValue(data, axis);
+    state.rawAxes[axis.index] = raw;
+    state.axes[axis.index] = Math.max(0, Math.min(1, normalizeField(raw, axis)));
+  }
+
+  for (const button of layout.buttons) {
+    if (button.reportId !== report.reportId) continue;
+    state.buttons[button.index] = readBits(data, button.offset, 1) === 1;
+  }
+
+  for (const hat of layout.hats) {
+    if (hat.reportId !== report.reportId) continue;
+    const raw = readBits(data, hat.offset, hat.size);
+    const direction = raw >= 0 && raw < 8 ? HAT_DIRECTIONS[raw] : null;
+    let x = 0, y = 0;
+    if (direction) {
+      if (direction.includes('right')) x = 1;
+      if (direction.includes('left')) x = -1;
+      if (direction.includes('down')) y = 1;
+      if (direction.includes('up')) y = -1;
+    }
+    state.hats[hat.index] = { raw, x, y, direction };
+  }
+}
+
+function snapshotDeviceState(state) {
+  return {
+    axes: state.axes.slice(),
+    rawAxes: state.rawAxes.slice(),
+    buttons: state.buttons.slice(),
+    hats: state.hats.map(hat => ({ ...hat })),
+    reports: { ...state.reports },
+    timestamp: state.timestamp,
+    reportId: state.reportId
+  };
+}
+
+export function mapChannels(state, mapping) {
+  const out = {};
+  for (const [channel, entry] of Object.entries(mapping || {})) {
+    if (!entry) continue;
+    if (entry.source === 'axis') {
+      let value = (state.axes || [])[entry.index];
+      if (value === undefined) { out[channel] = 0; continue; }
+      if (entry.invert) value = 1 - value;
+      out[channel] = Math.max(0, Math.min(1, value));
+    } else if (entry.source === 'button') {
+      out[channel] = (state.buttons || [])[entry.index] ? 1 : 0;
+    } else if (entry.source === 'hat') {
+      const hat = (state.hats || [])[entry.index];
+      out[channel] = hat && hat.direction === entry.direction ? 1 : 0;
+    }
+  }
+  return out;
+}
+
+export function isForceFeedbackWheel(device) {
+  const profile = registeredProfiles.find(p => profileMatches(p, device));
+  if (profile && profile.ffb &&
+      (profile.ffb.constant || profile.ffb.constantFast || profile.ffb.periodic)) {
+    return true;
+  }
+  return !!buildPidFfb(device);
+}
+
 function buildPidFfb(device) {
   const collect = (listName) => {
     const reports = [];
@@ -519,6 +665,82 @@ function profileMatches(profile, device) {
   return !!(profile.match && profile.match.test(device.productName || ''));
 }
 
+export class WebHIDDevice {
+
+  constructor(options = {}) {
+    if (typeof navigator === 'undefined' || !navigator.hid || !navigator.hid.requestDevice) {
+      throw new Error('WebHID not supported by browser or not available.');
+    }
+    this.options = options;
+    this._listeners = {};
+    this._state = createDeviceState({ axes: [], buttons: [], hats: [] });
+    this.inputLayout = { reports: [], axes: [], buttons: [], hats: [] };
+  }
+
+  on(event, fn) {
+    (this._listeners[event] = this._listeners[event] || []).push(fn);
+    return this;
+  }
+
+  off(event, fn) {
+    const list = this._listeners[event];
+    if (list) this._listeners[event] = list.filter(f => f !== fn);
+    return this;
+  }
+
+  emit(event, payload) {
+    const list = this._listeners[event];
+    if (list) for (const fn of list.slice()) { try { fn(payload); } catch (e) { /* noop */ } }
+  }
+
+  get isConnected() {
+    return !!(this.device && this.device.opened);
+  }
+
+  get state() {
+    return snapshotDeviceState(this._state);
+  }
+
+  async connect(device) {
+    if (this.isConnected) return this.device;
+
+    let dev = device;
+    if (!dev) {
+      const devices = await navigator.hid.requestDevice({ filters: this.options.filters || [] });
+      dev = devices[0];
+    }
+    if (!dev) return null;
+
+    this.device = dev;
+    try {
+      await dev.open();
+    } catch (e) {
+      if (!dev.opened) { this.emit('error', e); this.device = null; return null; }
+    }
+
+    this.name = dev.productName;
+    this.vendorId = dev.vendorId;
+    this.productId = dev.productId;
+    this.inputLayout = buildGenericDeviceLayout(dev);
+    this._state = createDeviceState(this.inputLayout);
+    this.device.oninputreport = (report) => this.processReport(report);
+    this.emit('connect', this.device);
+    return this.device;
+  }
+
+  async disconnect() {
+    const dev = this.device;
+    if (dev && dev.opened) { try { await dev.close(); } catch (e) { /* noop */ } }
+    this.device = null;
+    if (dev) this.emit('disconnect', dev);
+  }
+
+  processReport(report) {
+    applyGenericReport(this._state, this.inputLayout, report);
+    this.emit('input', this.state);
+  }
+}
+
 export class WebHIDWheel {
 
   static registerProfile(profile) {
@@ -563,7 +785,8 @@ export class WebHIDWheel {
       steering: this.steering,
       rotation: this.rotation,
       buttons: this.buttons || [],
-      axes: this.axes || []
+      axes: this.axes || [],
+      hats: this.deviceState ? this.deviceState.hats.map(hat => ({ ...hat })) : []
     };
   }
 
@@ -594,6 +817,8 @@ export class WebHIDWheel {
       this.maxRotation = this.profile.maxRotation;
     }
     this.layout = buildDescriptorLayout(dev);
+    this.inputLayout = buildGenericDeviceLayout(dev);
+    this.deviceState = createDeviceState(this.inputLayout);
     this.pidFfb = (this.profile && this.profile.ffb) ? null : buildPidFfb(dev);
     this.parserName = this.profile ? this.profile.name : (this.layout ? 'Generic (HID descriptor)' : null);
 
@@ -638,6 +863,7 @@ export class WebHIDWheel {
     this.timestamp = report.timeStamp;
     this.reportId = report.reportId;
     this.updateState(data);
+    if (this.deviceState && this.inputLayout) applyGenericReport(this.deviceState, this.inputLayout, report);
     this.emit('input', this.state);
   }
 

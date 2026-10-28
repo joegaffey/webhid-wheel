@@ -10,6 +10,69 @@ export interface WheelState {
   buttons: boolean[];
   /** Analog axes normalized to 0-255. */
   axes: number[];
+  /** Hat/POV state, when the device exposes one. */
+  hats?: DeviceHat[];
+}
+
+export interface DeviceAxis {
+  value: number;
+  raw: number;
+}
+
+export interface DeviceHat {
+  raw: number | null;
+  x: number;
+  y: number;
+  direction: string | null;
+}
+
+export interface DeviceState {
+  /** Axes normalized to 0-1. */
+  axes: number[];
+  /** Raw axis values. */
+  rawAxes: number[];
+  buttons: boolean[];
+  hats: DeviceHat[];
+  reports: Record<number, number[]>;
+  timestamp: number;
+  reportId: number | null;
+}
+
+export interface DeviceLayoutAxis {
+  index: number;
+  reportId: number;
+  offset: number;
+  size: number;
+  min?: number;
+  max?: number;
+  usage: number;
+}
+
+export interface DeviceLayoutButton {
+  index: number;
+  reportId: number;
+  offset: number;
+  usage: number;
+}
+
+export interface DeviceLayoutHat extends DeviceLayoutAxis {}
+
+export interface DeviceLayout {
+  reports: Array<{ id: number; len: number; fields: unknown[] }>;
+  axes: DeviceLayoutAxis[];
+  buttons: DeviceLayoutButton[];
+  hats: DeviceLayoutHat[];
+}
+
+export interface InputMapping {
+  source: 'axis' | 'button' | 'hat';
+  index: number;
+  invert?: boolean;
+  direction?: string;
+}
+
+export interface DeviceChannelMapping {
+  [channel: string]: InputMapping | null | undefined;
 }
 
 export interface FfbCapabilities {
@@ -121,6 +184,10 @@ export declare class WebHIDWheel {
   ffbCaps?: FfbCapabilities;
   /** Force-feedback handle (available after `connect`). */
   ffb?: WheelFfb;
+  /** Generic input layout for this device. */
+  inputLayout?: DeviceLayout;
+  /** Generic axes/buttons/hats state for this device. */
+  deviceState?: DeviceState;
 
   maxRotation: number;
   ffbStrength: number;
@@ -131,5 +198,42 @@ export declare class WebHIDWheel {
   setConstantForceFast(value: number): Promise<void>;
   stopEffects(): Promise<void>;
 }
+
+
+export interface WebHIDDeviceOptions {
+  /** Filters passed to `navigator.hid.requestDevice`. */
+  filters?: HIDDeviceFilter[];
+}
+
+export declare class WebHIDDevice {
+  constructor(options?: WebHIDDeviceOptions);
+
+  on(event: 'input', fn: (state: DeviceState) => void): this;
+  on(event: 'connect', fn: (device: HIDDevice) => void): this;
+  on(event: 'disconnect', fn: (device: HIDDevice) => void): this;
+  on(event: 'error', fn: (error: unknown) => void): this;
+  on(event: string, fn: (...args: unknown[]) => void): this;
+
+  off(event: string, fn: (...args: unknown[]) => void): this;
+
+  connect(device?: HIDDevice): Promise<HIDDevice | null>;
+  disconnect(): Promise<void>;
+
+  readonly isConnected: boolean;
+  readonly state: DeviceState;
+
+  device: HIDDevice | null;
+  name?: string;
+  vendorId?: number;
+  productId?: number;
+  inputLayout: DeviceLayout;
+}
+
+export declare function mapChannels(
+  state: DeviceState,
+  mapping: DeviceChannelMapping
+): Record<string, number>;
+
+export declare function isForceFeedbackWheel(device: HIDDevice): boolean;
 
 export default WebHIDWheel;
