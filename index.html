@@ -35,7 +35,7 @@
         padding: 32px 20px 48px;
       }
       #app { max-width: 980px; margin: 0 auto; }
-      header { text-align: center; margin-bottom: 18px; }
+      header { text-align: center; margin-bottom: 16px; }
       header h1 { margin: 0 0 8px; font-size: 1.7rem; letter-spacing: .2px; }
       header p { margin: 0 auto; max-width: 760px; color: var(--muted); font-size: .95rem; }
       .toolbar { display: flex; gap: 10px; align-items: center; justify-content: center; margin-top: 16px; flex-wrap: wrap; }
@@ -61,7 +61,8 @@
         padding: 16px;
       }
       .panel h2 { margin: 0 0 10px; font-size: .78rem; text-transform: uppercase; letter-spacing: .14em; color: var(--muted); font-weight: 700; }
-      .panel + .panel { margin-top: 16px; }
+      .tab-panel > .panel + .panel { margin-top: 16px; }
+      .raw-panel { margin-top: 16px; }
       .badge { font-size: .7rem; font-weight: 700; color: var(--accent-2); background: rgba(79, 140, 255, .12); border: 1px solid rgba(79, 140, 255, .3); padding: 2px 9px; border-radius: 999px; }
       .badge.ffb { color: var(--ok); background: rgba(52, 211, 153, .12); border-color: rgba(52, 211, 153, .35); }
       .badge.warn { color: var(--warn); background: rgba(255, 170, 80, .12); border-color: rgba(255, 170, 80, .35); }
@@ -79,7 +80,7 @@
       .device-badges { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; justify-content: flex-end; }
       .device-remove { background: transparent; border: 1px solid var(--border); color: var(--muted); border-radius: 8px; cursor: pointer; padding: 5px 9px; }
       .device-remove:hover { color: var(--text); border-color: var(--warn); }
-      .tabs { display: flex; gap: 6px; margin: 14px 0 10px; border-bottom: 1px solid var(--border); }
+      .tabs { display: flex; gap: 6px; margin: 16px 0 16px; border-bottom: 1px solid var(--border); }
       .tab {
         appearance: none; background: transparent; border: 0; border-bottom: 2px solid transparent;
         color: var(--muted); cursor: pointer; font: inherit; font-weight: 650; padding: 9px 14px;
@@ -124,7 +125,7 @@
       .dbg-byte { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: .78rem; padding: 2px 6px; border-radius: 5px; background: #151a23; color: #86d3a4; }
       .dbg-byte.chg { background: rgba(79, 140, 255, .22); color: #cfe0ff; box-shadow: inset 0 0 0 1px rgba(79, 140, 255, .55); }
       #exportText { width: 100%; min-height: 160px; margin-top: 12px; resize: vertical; background: #0b0d12; border: 1px solid var(--border); border-radius: 10px; color: #a9e08a; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: .76rem; padding: 10px 12px; }
-      footer { margin-top: 20px; text-align: center; color: var(--muted); font-size: .8rem; }
+      footer { margin-top: 16px; text-align: center; color: var(--muted); font-size: .8rem; }
       a { color: var(--accent-2); }
           .devices-panel { padding: 14px 16px; }
       .devices-panel h2 { margin-bottom: 8px; }
@@ -243,7 +244,7 @@
         </div>
       </section>
 
-      <section class="panel">
+      <section class="panel raw-panel">
         <h2>Raw input</h2>
         <div id="debug"><div class="dbg-empty">No data</div></div>
         <div id="exportOutput" class="hidden"><textarea id="exportText" readonly></textarea></div>
