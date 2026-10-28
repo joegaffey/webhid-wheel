@@ -4,9 +4,9 @@
     <title>WebHID Wheel</title>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <meta name="description" content="Read a USB HID steering wheel in the browser over WebHID — steering, buttons, pedals and force feedback. No drivers." />
+    <meta name="description" content="Read USB HID wheels, pedals and button boxes in the browser over WebHID. Map axes and buttons, test force feedback and capture device reports." />
     <meta property="og:title" content="WebHID Wheel" />
-    <meta property="og:description" content="Read a USB HID steering wheel in the browser over WebHID — steering, buttons, pedals and force feedback." />
+    <meta property="og:description" content="Read USB HID wheels, pedals and button boxes in the browser over WebHID." />
     <meta property="og:type" content="website" />
     <meta property="og:url" content="https://joegaffey.com/webhid-wheel/" />
     <style>
@@ -19,6 +19,8 @@
         --muted: #95a0b3;
         --accent: #4f8cff;
         --accent-2: #7aa7ff;
+        --warn: #ffb86b;
+        --ok: #34d399;
         --radius: 14px;
       }
       * { box-sizing: border-box; }
@@ -32,78 +34,96 @@
         min-height: 100vh;
         padding: 32px 20px 48px;
       }
-      #app { max-width: 820px; margin: 0 auto; }
-      header { text-align: center; margin-bottom: 28px; }
+      #app { max-width: 980px; margin: 0 auto; }
+      header { text-align: center; margin-bottom: 22px; }
       header h1 { margin: 0 0 8px; font-size: 1.7rem; letter-spacing: .2px; }
-      header p { margin: 0 auto; max-width: 660px; color: var(--muted); font-size: .95rem; }
-      .toolbar { display: flex; gap: 14px; align-items: center; justify-content: center; margin-top: 20px; flex-wrap: wrap; }
+      header p { margin: 0 auto; max-width: 760px; color: var(--muted); font-size: .95rem; }
+      .toolbar { display: flex; gap: 12px; align-items: center; justify-content: center; margin-top: 18px; flex-wrap: wrap; }
       #connectButton {
         appearance: none; border: 0; cursor: pointer;
         background: linear-gradient(180deg, var(--accent-2), var(--accent));
         color: #08111f; font-weight: 700; font-size: .95rem;
         padding: 11px 26px; border-radius: 999px;
         box-shadow: 0 8px 22px rgba(79, 140, 255, .35);
-        transition: transform .08s ease, filter .15s ease;
       }
       #connectButton:hover { filter: brightness(1.06); }
       #connectButton:active { transform: translateY(1px); }
-      .ghost { appearance: none; cursor: pointer; background: transparent; color: var(--text); border: 1px solid var(--border); border-radius: 999px; padding: 8px 18px; font-weight: 600; font-size: .9rem; text-decoration: none; display: inline-flex; align-items: center; justify-self: start; }
+      .ghost { appearance: none; cursor: pointer; background: transparent; color: var(--text); border: 1px solid var(--border); border-radius: 999px; padding: 9px 16px; font-weight: 600; font-size: .9rem; }
       .ghost:hover { border-color: var(--accent); color: var(--accent-2); }
-      #wheelName { font-size: .95rem; font-weight: 600; color: var(--muted); }
-      .repo { display: inline-flex; align-items: center; gap: 6px; margin-top: 16px; padding: 6px 14px; border: 1px solid var(--border); border-radius: 999px; color: var(--muted); font-size: .82rem; text-decoration: none; }
-      .repo:hover { color: var(--accent-2); border-color: var(--accent); }
-      .badge { font-size: .72rem; font-weight: 600; color: var(--accent-2); background: rgba(79, 140, 255, .12); border: 1px solid rgba(79, 140, 255, .3); padding: 3px 10px; border-radius: 999px; }
-      .badge.warn { color: #ffb86b; background: rgba(255, 170, 80, .12); border-color: rgba(255, 170, 80, .35); }
-      .badge:empty { display: none; }
-      .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
-      @media (max-width: 760px) { .grid { grid-template-columns: 1fr; } }
+      .ghost:disabled { opacity: .45; cursor: default; }
+      #statusText { color: var(--muted); font-size: .9rem; }
+      #statusText.ok { color: var(--ok); }
+      #statusText.warn { color: var(--warn); }
       .panel {
         background: linear-gradient(180deg, var(--panel), var(--panel-2));
         border: 1px solid var(--border);
         border-radius: var(--radius);
         padding: 18px;
       }
-      .panel h2 {
-        margin: 0 0 12px; font-size: .78rem; text-transform: uppercase;
-        letter-spacing: .14em; color: var(--muted); font-weight: 700;
+      .panel h2 { margin: 0 0 12px; font-size: .78rem; text-transform: uppercase; letter-spacing: .14em; color: var(--muted); font-weight: 700; }
+      .panel + .panel { margin-top: 18px; }
+      .badge { font-size: .7rem; font-weight: 700; color: var(--accent-2); background: rgba(79, 140, 255, .12); border: 1px solid rgba(79, 140, 255, .3); padding: 2px 9px; border-radius: 999px; }
+      .badge.ffb { color: var(--ok); background: rgba(52, 211, 153, .12); border-color: rgba(52, 211, 153, .35); }
+      .badge.warn { color: var(--warn); background: rgba(255, 170, 80, .12); border-color: rgba(255, 170, 80, .35); }
+      .device-list { display: grid; gap: 10px; }
+      .device-card {
+        display: grid; grid-template-columns: 1fr auto auto; gap: 10px; align-items: center;
+        width: 100%; text-align: left; cursor: pointer;
+        background: #11151d; border: 1px solid var(--border); color: var(--text);
+        border-radius: 10px; padding: 10px 12px;
       }
-      .panel svg { display: block; width: 100%; max-width: 360px; height: auto; margin: 0 auto; }
+      .device-card:hover { border-color: #3a465c; }
+      .device-card.active { border-color: var(--accent); box-shadow: inset 0 0 0 1px rgba(79, 140, 255, .35); }
+      .device-name { font-weight: 650; }
+      .device-meta { color: var(--muted); font-size: .78rem; }
+      .device-badges { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; justify-content: flex-end; }
+      .device-remove { background: transparent; border: 1px solid var(--border); color: var(--muted); border-radius: 8px; cursor: pointer; padding: 5px 9px; }
+      .device-remove:hover { color: var(--text); border-color: var(--warn); }
+      .tabs { display: flex; gap: 6px; margin: 18px 0 12px; border-bottom: 1px solid var(--border); }
+      .tab {
+        appearance: none; background: transparent; border: 0; border-bottom: 2px solid transparent;
+        color: var(--muted); cursor: pointer; font: inherit; font-weight: 650; padding: 9px 14px;
+      }
+      .tab:hover { color: var(--text); }
+      .tab.active { color: var(--accent-2); border-bottom-color: var(--accent); }
+      .tab-panel { display: block; }
+      .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+      @media (max-width: 780px) { .grid { grid-template-columns: 1fr; } }
+      .wheel-svg { display: block; width: 100%; max-width: 340px; height: auto; margin: 0 auto; }
       #rim { filter: drop-shadow(0 8px 14px rgba(0, 0, 0, .5)); }
       #rim line, #rim ellipse { fill: none; stroke: url(#rimGrad); stroke-width: 10; stroke-linecap: round; }
       #steerArc { stroke: var(--accent); }
       #angleReadout { fill: var(--muted); font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 15px; }
-      #steerDot { fill: var(--accent); }
-      #inputs ellipse { stroke: #5a6473; }
-      #buttonLabels text { fill: #cfd8e8; font-family: inherit; }
-      #axesBoxes rect { stroke: #39414f; fill: none; }
-      #axes rect { fill: var(--accent); }
-      .controls { margin-top: 18px; display: grid; gap: 16px; }
-      .hint { margin: 0 0 4px; color: var(--muted); font-size: .78rem; }
-      .control { display: grid; grid-template-columns: 170px 1fr auto; align-items: center; gap: 14px; }
-      .control label { color: var(--muted); font-size: .9rem; }
-      .control .val { font-variant-numeric: tabular-nums; color: var(--text); font-weight: 600; min-width: 48px; text-align: right; }
+      .mapping-list { display: grid; gap: 8px; }
+      .mapping-row {
+        display: grid; grid-template-columns: 110px minmax(0, 1fr) auto auto; gap: 10px;
+        align-items: center; padding: 9px 10px; border: 1px solid var(--border); border-radius: 9px; background: #11151d;
+      }
+      .mapping-label { font-weight: 650; font-size: .9rem; }
+      .mapping-target { color: var(--muted); font-size: .82rem; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .mapping-target.set { color: var(--text); }
+      .mapping-row button { font-size: .8rem; padding: 5px 10px; }
+      .mapping-row.armed { border-color: var(--accent); box-shadow: inset 0 0 0 1px rgba(79, 140, 255, .4); }
+      .mapping-row .invert { width: 16px; height: 16px; accent-color: var(--accent); }
+      .controls { margin-top: 14px; display: grid; gap: 12px; }
+      .control { display: grid; grid-template-columns: 130px 1fr auto; align-items: center; gap: 12px; }
+      .control label { color: var(--muted); font-size: .88rem; }
+      .control .val { font-variant-numeric: tabular-nums; color: var(--text); font-weight: 600; min-width: 46px; text-align: right; }
       .control input[type="checkbox"] { justify-self: start; width: 18px; height: 18px; accent-color: var(--accent); }
       input[type="range"] { -webkit-appearance: none; appearance: none; height: 6px; border-radius: 999px; background: #2b3240; outline: none; width: 100%; }
       input[type="range"]::-webkit-slider-thumb { -webkit-appearance: none; width: 18px; height: 18px; border-radius: 50%; background: var(--accent); border: 2px solid var(--bg); cursor: pointer; box-shadow: 0 2px 6px rgba(0, 0, 0, .5); }
       input[type="range"]::-moz-range-thumb { width: 16px; height: 16px; border: 2px solid var(--bg); border-radius: 50%; background: var(--accent); cursor: pointer; }
-      input[type="range"]:disabled { opacity: .4; }
-      .raw { margin-top: 18px; }
-      #debug {
-        margin: 0; max-height: 240px; overflow: auto;
-        background: #0b0d12; border: 1px solid var(--border); border-radius: 10px;
-      }
-      .dbg-head { padding: 9px 14px; border-bottom: 1px solid var(--border); color: var(--muted); font: 600 .72rem/1 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; letter-spacing: .08em; text-transform: uppercase; }
-      .dbg-empty { padding: 12px 14px; color: var(--muted); }
-      .dbg-grid { display: flex; flex-wrap: wrap; gap: 4px; padding: 12px 14px; }
-      .dbg-byte { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: .8rem; padding: 2px 6px; border-radius: 5px; background: #151a23; color: #86d3a4; }
+      .hint { margin: 0; color: var(--muted); font-size: .82rem; }
+      .hint.ok { color: var(--ok); }
+      .hint.warn { color: var(--warn); }
+      #debug { margin: 0; max-height: 180px; overflow: auto; background: #0b0d12; border: 1px solid var(--border); border-radius: 10px; }
+      .dbg-head { padding: 8px 12px; border-bottom: 1px solid var(--border); color: var(--muted); font: 600 .7rem/1 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; letter-spacing: .08em; text-transform: uppercase; }
+      .dbg-empty { padding: 10px 12px; color: var(--muted); }
+      .dbg-grid { display: flex; flex-wrap: wrap; gap: 4px; padding: 10px 12px; }
+      .dbg-byte { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: .78rem; padding: 2px 6px; border-radius: 5px; background: #151a23; color: #86d3a4; }
       .dbg-byte.chg { background: rgba(79, 140, 255, .22); color: #cfe0ff; box-shadow: inset 0 0 0 1px rgba(79, 140, 255, .55); }
-      .diag { margin-top: 14px; }
-      #diagHelp { margin: 0 0 12px; }
-      .diag-actions { display: flex; flex-wrap: wrap; gap: 10px; }
-      #diagStatus { margin: 10px 0 0; min-height: 1.1em; }
-      #diagStatus.live { color: var(--accent-2); }
-      #diagOutput { width: 100%; margin-top: 12px; min-height: 180px; resize: vertical; background: #0b0d12; border: 1px solid var(--border); border-radius: 10px; color: #a9e08a; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: .78rem; padding: 12px 14px; }
-      footer { margin-top: 26px; text-align: center; color: var(--muted); font-size: .8rem; }
+      #exportText { width: 100%; min-height: 160px; margin-top: 12px; resize: vertical; background: #0b0d12; border: 1px solid var(--border); border-radius: 10px; color: #a9e08a; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: .76rem; padding: 10px 12px; }
+      footer { margin-top: 24px; text-align: center; color: var(--muted); font-size: .8rem; }
       a { color: var(--accent-2); }
     </style>
   </head>
@@ -112,155 +132,120 @@
       <header>
         <h1>WebHID Wheel</h1>
         <p>
-          Talk to a <a href="https://en.wikipedia.org/wiki/USB_human_interface_device_class">HID</a>-compatible steering wheel directly over <a href="https://developer.mozilla.org/en-US/docs/Web/API/WebHID_API">WebHID</a> — no drivers or install. Plug the wheelbase in over USB, click Connect and select it. You get live steering, buttons and pedals, plus force feedback on supported wheels. Needs a <a href="https://caniuse.com/webhid">WebHID-capable browser</a>.<br>Unknown wheel? Use <b>Gather diagnostics</b> below to report it.
+          Connect a wheel, pedals or button box directly over
+          <a href="https://developer.mozilla.org/en-US/docs/Web/API/WebHID_API">WebHID</a>.
+          Map axes and buttons, test force feedback and export raw captures for known-device profiles.
+          Needs a <a href="https://caniuse.com/webhid">WebHID-capable browser</a>.
         </p>
         <div class="toolbar">
-          <button id="connectButton">Connect</button>
-          <span id="wheelName">No wheel connected</span>
-          <span id="wheelProfile" class="badge"></span>
+          <button id="connectButton">Connect device</button>
+          <button id="exportButton" class="ghost" disabled>Copy JSON</button>
+          <button id="downloadButton" class="ghost" disabled>Download JSON</button>
+          <span id="statusText">No device connected</span>
         </div>
       </header>
 
-      <div class="grid">
-        <section class="panel">
-          <h2>Wheel</h2>
-          <svg id="wheel" width="300" height="300" viewBox="0 0 300 300">
-            <defs>
-              <linearGradient id="rimGrad" gradientUnits="userSpaceOnUse" x1="150" y1="50" x2="150" y2="250">
-                <stop offset="0%" stop-color="#ffffff"/>
-                <stop offset="100%" stop-color="#c6cfdf"/>
-              </linearGradient>
-            </defs>
-            <g transform="translate(150 150) scale(1.12) translate(-150 -150)">
-            <path id="steerArc" fill="none" stroke-width="5" stroke-linecap="round"></path>
-            <g id="rim" transform="rotate(180 150 150)">
-              <line fill="none" id="line_y" stroke="#000000" stroke-width="12" transform="translate(150 50)" x1="0" x2="0" y1="0" y2="100"/>
-              <line fill="none" id="line_z" stroke="#000000" stroke-width="12" transform="translate(150 150) rotate(60)" y2="100"/>
-              <line fill="none" id="line_x" stroke="#000000" stroke-width="12" transform="translate(150 150) rotate(-60)" x1="0" x2="0" y1="0" y2="100"/>
-              <ellipse cx="150" cy="150" fill="none" stroke="#000000" stroke-width="12" rx="100" ry="100"/>
-              <ellipse cx="150" cy="150" rx="25" ry="25" style="fill: #e8ecf3; stroke: none;"/>
-            </g>
-            </g>
-            <text id="angleReadout" x="150" y="288" text-anchor="middle"></text>
-          </svg>
-        </section>
+      <section class="panel">
+        <h2>Devices</h2>
+        <div id="deviceList" class="device-list"></div>
+        <p class="hint" id="deviceHint">Connect a wheel, pedals, button box or handbrake. Each Connect adds one device.</p>
+      </section>
 
-        <section class="panel">
-          <h2>Inputs</h2>
-          <svg id="inputs" width="300" height="300" viewBox="0 0 300 300">
-            <g transform="translate(25 0)">
-            <g id="buttons" font-family="Arial, Helvetica, sans-serif" font-size="24">
-              <ellipse id="b1" cx="50" cy="50" fill="none" stroke="#000000" stroke-width="2" rx="20" ry="20"/>
-              <ellipse id="b2" cx="100" cy="50" fill="none" stroke="#000000" stroke-width="2" rx="20" ry="20"/>
-              <ellipse id="b3" cx="150" cy="50" fill="none" stroke="#000000" stroke-width="2" rx="20" ry="20"/>
-              <ellipse id="b4" cx="200" cy="50" fill="none" stroke="#000000" stroke-width="2" rx="20" ry="20"/>
-              <ellipse id="b5" cx="50" cy="100" fill="none" stroke="#000000" stroke-width="2" rx="20" ry="20"/>
-              <ellipse id="b6" cx="100" cy="100" fill="none" stroke="#000000" stroke-width="2" rx="20" ry="20"/>
-              <ellipse id="b7" cx="150" cy="100" fill="none" stroke="#000000" stroke-width="2" rx="20" ry="20"/>
-              <ellipse id="b8" cx="200" cy="100" fill="none" stroke="#000000" stroke-width="2" rx="20" ry="20"/>
-              <ellipse id="b9" cx="50" cy="150" fill="none" stroke="#000000" stroke-width="2" rx="20" ry="20"/>
-              <ellipse id="b10" cx="100" cy="150" fill="none" stroke="#000000" stroke-width="2" rx="20" ry="20"/>
-              <ellipse id="b11" cx="150" cy="150" fill="none" stroke="#000000" stroke-width="2" rx="20" ry="20"/>
-              <ellipse id="b12" cx="200" cy="150" fill="none" stroke="#000000" stroke-width="2" rx="20" ry="20"/>
-              <ellipse id="b13" cx="50" cy="200" fill="none" stroke="#000000" stroke-width="2" rx="20" ry="20"/>
-              <ellipse id="b14" cx="100" cy="200" fill="none" stroke="#000000" stroke-width="2" rx="20" ry="20"/>
-              <ellipse id="b15" cx="150" cy="200" fill="none" stroke="#000000" stroke-width="2" rx="20" ry="20"/>
-              <ellipse id="b16" cx="200" cy="200" fill="none" stroke="#000000" stroke-width="2" rx="20" ry="20"/>
-            </g>
-            <g id="buttonLabels">
-              <text x="50" y="50" alignment-baseline="middle" text-anchor="middle">1</text>
-              <text x="100" y="50" alignment-baseline="middle" text-anchor="middle">2</text>
-              <text x="150" y="50" alignment-baseline="middle" text-anchor="middle">3</text>
-              <text x="200" y="50" alignment-baseline="middle" text-anchor="middle">4</text>
-              <text x="50" y="100" alignment-baseline="middle" text-anchor="middle">5</text>
-              <text x="100" y="100" alignment-baseline="middle" text-anchor="middle">6</text>
-              <text x="150" y="100" alignment-baseline="middle" text-anchor="middle">7</text>
-              <text x="200" y="100" alignment-baseline="middle" text-anchor="middle">8</text>
-              <text x="50" y="150" alignment-baseline="middle" text-anchor="middle">9</text>
-              <text x="100" y="150" alignment-baseline="middle" text-anchor="middle">10</text>
-              <text x="150" y="150" alignment-baseline="middle" text-anchor="middle">11</text>
-              <text x="200" y="150" alignment-baseline="middle" text-anchor="middle">12</text>
-              <text x="50" y="200" alignment-baseline="middle" text-anchor="middle">13</text>
-              <text x="100" y="200" alignment-baseline="middle" text-anchor="middle">14</text>
-              <text x="150" y="200" alignment-baseline="middle" text-anchor="middle">15</text>
-              <text x="200" y="200" alignment-baseline="middle" text-anchor="middle">16</text>
-            </g>
-            <g id="axesBoxes">
-              <rect x="35" y="240" width="14" height="50" fill="none" stroke="#000000" stroke-width="2" />
-              <rect x="75" y="240" width="14" height="50" fill="none" stroke="#000000" stroke-width="2" />
-              <rect x="115" y="240" width="14" height="50" fill="none" stroke="#000000" stroke-width="2" />
-              <rect x="155" y="240" width="14" height="50" fill="none" stroke="#000000" stroke-width="2" />
-              <rect x="195" y="240" width="14" height="50" fill="none" stroke="#000000" stroke-width="2" />
-            </g>
-            <g id="axes">
-              <rect id="ax1" x="36" y="240" width="12" height="0" fill="red" stroke="none" />
-              <rect id="ax2" x="76" y="240" width="12" height="0" fill="red" stroke="none" />
-              <rect id="ax3" x="116" y="240" width="12" height="0" fill="red" stroke="none" />
-              <rect id="ax4" x="156" y="240" width="12" height="0" fill="red" stroke="none" />
-              <rect id="ax5" x="196" y="240" width="12" height="0" fill="red" stroke="none" />
-            </g>
-            </g>
-          </svg>
-        </section>
-      </div>
+      <nav class="tabs" id="tabs">
+        <button class="tab active" data-tab="wheel">Wheel</button>
+        <button class="tab" data-tab="axes">Other axes</button>
+        <button class="tab" data-tab="buttons">Buttons</button>
+      </nav>
 
-      <section class="panel controls">
-        <h2>Settings</h2>
-        <div class="control" id="ctrlRotation">
-          <label for="maxRotation">Max Rotation</label>
-          <input type="range" min="0" max="3000" step="10" value="900" id="maxRotation">
-          <span class="val" id="maxRotationValue">900</span>
-        </div>
-        <p class="hint hidden" id="ffbHint">Start low &mdash; force feedback can move the wheel forcefully.</p>
-        <div class="control hidden" id="ctrlStrength">
-          <label for="strength">Strength</label>
-          <input type="range" min="0" max="100" value="25" id="strength">
-          <span class="val" id="strengthValue">25</span>
-        </div>
-        <div class="control hidden" id="ctrlForce">
-          <label for="force">Constant Force</label>
-          <input type="range" min="-100" max="100" value="0" id="force">
-          <span class="val" id="forceValue">0</span>
-        </div>
-        <div class="control hidden" id="ctrlInvert">
-          <label for="invertFfb">Invert Force</label>
-          <input type="checkbox" id="invertFfb">
-          <span class="val"></span>
-        </div>
-        <div class="control hidden" id="ctrlRumble">
-          <label for="rumble">Rumble Effect</label>
-          <input type="range" min="0" max="255" value="0" id="rumble">
-          <span class="val">&mdash;</span>
-        </div>
-        <div class="control hidden" id="ctrlStop">
-          <label>Force Feedback</label>
-          <button id="stopFfb" class="ghost">Stop FFB</button>
-          <span class="val"></span>
+      <section class="tab-panel" data-panel="wheel">
+        <div class="grid">
+          <div class="panel">
+            <h2>Wheel</h2>
+            <svg class="wheel-svg" width="300" height="300" viewBox="0 0 300 300">
+              <defs>
+                <linearGradient id="rimGrad" gradientUnits="userSpaceOnUse" x1="150" y1="50" x2="150" y2="250">
+                  <stop offset="0%" stop-color="#ffffff"/>
+                  <stop offset="100%" stop-color="#c6cfdf"/>
+                </linearGradient>
+              </defs>
+              <g transform="translate(150 150) scale(1.12) translate(-150 -150)">
+                <path id="steerArc" fill="none" stroke-width="5" stroke-linecap="round"></path>
+                <g id="rim" transform="rotate(180 150 150)">
+                  <line fill="none" stroke="#000000" stroke-width="12" transform="translate(150 50)" x1="0" x2="0" y1="0" y2="100"/>
+                  <line fill="none" stroke="#000000" stroke-width="12" transform="translate(150 150) rotate(60)" y2="100"/>
+                  <line fill="none" stroke="#000000" stroke-width="12" transform="translate(150 150) rotate(-60)" x1="0" x2="0" y1="0" y2="100"/>
+                  <ellipse cx="150" cy="150" fill="none" stroke="#000000" stroke-width="12" rx="100" ry="100"/>
+                  <ellipse cx="150" cy="150" rx="25" ry="25" style="fill: #e8ecf3; stroke: none;"/>
+                </g>
+              </g>
+              <text id="angleReadout" x="150" y="288" text-anchor="middle"></text>
+            </svg>
+          </div>
+
+          <div class="panel">
+            <h2>Wheel setup</h2>
+            <p class="hint" id="wheelHint">Select a wheel device in the list above.</p>
+            <div id="wheelMappings" class="mapping-list"></div>
+            <div class="controls">
+              <div class="control">
+                <label for="maxRotation">Max rotation</label>
+                <input type="range" id="maxRotation" min="180" max="1080" step="10" value="900">
+                <span class="val" id="maxRotationValue">900°</span>
+              </div>
+              <div class="control">
+                <label for="strength">FFB strength</label>
+                <input type="range" id="strength" min="0" max="100" value="25">
+                <span class="val" id="strengthValue">25%</span>
+              </div>
+              <div class="control">
+                <label for="force">Constant force</label>
+                <input type="range" id="force" min="-100" max="100" value="0">
+                <span class="val" id="forceValue">0%</span>
+              </div>
+              <div class="control">
+                <label for="invertFfb">Invert force</label>
+                <input type="checkbox" id="invertFfb">
+                <span class="val"></span>
+              </div>
+              <div class="control">
+                <label>Force feedback</label>
+                <button id="stopFfb" class="ghost">Stop FFB</button>
+                <span class="val"></span>
+              </div>
+            </div>
+          </div>
         </div>
       </section>
 
-      <section class="panel raw">
-        <h2>Raw HID Input Report</h2>
-        <div id="debug"><div class="dbg-empty">No data</div></div>
-        <div class="diag">
-          <p class="hint" id="diagHelp">To report an unsupported wheel: <b>Gather diagnostics</b>, turn full-lock and press every button, <b>Stop</b>, then <b>Copy JSON</b> and <b>Open issue</b> (paste it into the diagnostics field).</p>
-          <div class="diag-actions">
-            <button id="gatherDiag" class="ghost">Gather diagnostics</button>
-            <button id="stopDiag" class="ghost hidden">Stop diagnostics</button>
-            <button id="copyDiag" class="ghost hidden">Copy JSON</button>
-            <a id="reportDiag" class="ghost hidden" href="#" target="_blank" rel="noopener noreferrer">Open issue</a>
-          </div>
-          <p id="diagStatus" class="hint"></p>
+      <section class="tab-panel hidden" data-panel="axes">
+        <div class="panel">
+          <h2>Other axes</h2>
+          <p class="hint">Select the active device above, then press Set on a row and move that input.</p>
+          <div id="axesMappings" class="mapping-list"></div>
         </div>
-        <textarea id="diagOutput" class="hidden" readonly spellcheck="false"></textarea>
+      </section>
+
+      <section class="tab-panel hidden" data-panel="buttons">
+        <div class="panel">
+          <h2>Button actions</h2>
+          <p class="hint">Select the active device above, then press Set and press a button or move a hat/POV.</p>
+          <div id="buttonMappings" class="mapping-list"></div>
+        </div>
+        <div class="panel">
+          <h2>Default buttons</h2>
+          <p class="hint">Unmapped buttons are available under numbered names.</p>
+          <div id="defaultButtons" class="mapping-list"></div>
+        </div>
+      </section>
+
+      <section class="panel">
+        <h2>Raw input</h2>
+        <div id="debug"><div class="dbg-empty">No data</div></div>
+        <div id="exportOutput" class="hidden"><textarea id="exportText" readonly></textarea></div>
       </section>
 
       <footer>
-        <p>Use at your own risk. Force feedback availability depends on the connected device.</p>
-        <a class="repo" href="https://github.com/joegaffey/webhid-wheel" target="_blank" rel="noopener noreferrer">
-          <svg height="16" width="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path fill-rule="evenodd" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"></path></svg>
-          joegaffey/webhid-wheel
-        </a>
+        Built on <a href="https://github.com/joegaffey/webhid-wheel">webhid-wheel</a>. Use at your own risk; force feedback can move the wheel forcefully.
       </footer>
     </div>
     <script type="module" src="script.js"></script>

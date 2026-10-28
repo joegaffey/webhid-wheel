@@ -1,242 +1,690 @@
-import { WebHIDWheel } from './webhid-wheel.js';    
+import { WebHIDWheel, WebHIDDevice, isForceFeedbackWheel } from './webhid-wheel.js';
 
-let wheelEl, rimEl, steerArcEl, angleReadoutEl, wheelNameEl, wheelProfileEl, debugEl, buttonShapes, axisShapes;
-let ctrlStrengthEl, ctrlForceEl, ctrlRumbleEl, ctrlStopEl;
-let wheel, maxRotation = 900, lastDebug = null;
+const STORAGE = {
+  devices: 'webhid-wheel:v1:devices',
+  mappings: 'webhid-wheel:v1:mappings',
+  settings: 'webhid-wheel:v1:settings'
+};
 
-const CX = 150, CY = 150, ARC_R = 86;
+const AXIS_ROWS = [
+  { key: 'throttle', label: 'Throttle' },
+  { key: 'brake', label: 'Brake' },
+  { key: 'clutch', label: 'Clutch' },
+  { key: 'handbrake', label: 'Handbrake' }
+];
 
-// The WebHID device can only be requested upon user interaction
-document.getElementById('connectButton').addEventListener('click', async () => {
-  
-  wheel = new WebHIDWheel();
-  
-  // This will request the WebHID device and initialize the controller
-  await wheel.connect();
-  if (wheel.profile && wheel.profile.maxRotation !== undefined) {
-    maxRotation = wheel.maxRotation;
-    document.getElementById('maxRotation').value = maxRotation;
-    document.getElementById('maxRotationValue').textContent = maxRotation;
-  } else {
-    wheel.maxRotation = maxRotation;
-  }
-  if (wheel.parserName) {
-    wheelProfileEl.textContent = wheel.parserName;
-    wheelProfileEl.classList.toggle('warn', !wheel.profile);
-  } else {
-    wheelProfileEl.textContent = 'Unknown wheel \u2014 raw report only';
-    wheelProfileEl.classList.add('warn');
-  }
-  const caps = wheel.ffbCaps || {};
-  updateFfbControls({ constant: !!caps.constant, periodic: !!caps.periodic, any: !!caps.any });
-  
-  function logInputs() {
-    requestAnimationFrame(logInputs);   
-    
-    if(wheel.name)
-      wheelNameEl.innerHTML = wheel.name;
-    
-    if(wheel.debug)
-      renderDebug();
-        
-    if(wheel.rotation !== undefined) {
-      rimEl.setAttribute('transform', `rotate(${wheel.rotation + 180} 150 150)`);
-      const deg = Math.max(-360, Math.min(360, wheel.rotation));
-      steerArcEl.setAttribute('d', arcPath(CX, CY, ARC_R, deg));
-      steerArcEl.style.opacity = Math.abs(deg) < 0.5 ? 0 : 1;
-      angleReadoutEl.textContent = (wheel.rotation >= 0 ? '+' : '') + Math.round(wheel.rotation) + '\u00b0';
-    }
-    if(wheel.buttons) {
-      wheel.buttons.forEach((button, i) => {
-        if (buttonShapes[i]) {
-          button ? buttonShapes[i].setAttribute('fill', 'red') : buttonShapes[i].setAttribute('fill', 'none');
-        }
-      });
-    }
-    if(wheel.axes) {
-      wheel.axes.forEach((axis, i) => {
-        if (axisShapes[i]) axisShapes[i].setAttribute('height', axis / 255 * 50);
-      });
-    }
-  }
-  logInputs();  
-  
-  const rumbleInput = document.getElementById('rumble');
-  rumbleInput.oninput = () => { wheel.rumble = rumbleInput.value; wheel.sendLocalState(); };
-  const forceInput = document.getElementById('force');
-  const forceValueEl = document.getElementById('forceValue');
-  forceInput.oninput = () => {
-    forceValueEl.textContent = forceInput.value;
-    wheel.setConstantForceFast(parseInt(forceInput.value) / 100).catch(showFfbError);
-  };
-  forceInput.onchange = () => {
-    forceInput.value = 0;
-    forceValueEl.textContent = '0';
-    wheel.stopEffects().catch(showFfbError);
-  };
-  const strengthInput = document.getElementById('strength');
-  const strengthValueEl = document.getElementById('strengthValue');
-  wheel.ffbStrength = parseInt(strengthInput.value) / 100;
-  strengthInput.oninput = () => {
-    wheel.ffbStrength = parseInt(strengthInput.value) / 100;
-    strengthValueEl.textContent = strengthInput.value;
-    wheel.setConstantForceFast(parseInt(forceInput.value) / 100).catch(showFfbError);
-  };
-  const invertInput = document.getElementById('invertFfb');
-  invertInput.checked = !!wheel.ffbInvert;
-  invertInput.onchange = () => {
-    wheel.ffbInvert = invertInput.checked;
-    if (parseInt(forceInput.value) !== 0) {
-      wheel.setConstantForceFast(parseInt(forceInput.value) / 100).catch(showFfbError);
-    }
-  };
-  const stopFfbButton = document.getElementById('stopFfb');
-  stopFfbButton.onclick = () => {
-    forceInput.value = 0;
-    forceValueEl.textContent = '0';
-    wheel.stopEffects().catch(showFfbError);
-  };
-});
+const BUTTON_ACTIONS = [
+  'reverse',
+  'neutral',
+  ...Array.from({ length: 8 }, (_, index) => `gear${index + 1}`),
+  'gearUp',
+  'gearDown',
+  'handbrake'
+];
 
-function showFfbError(e) {
-  const hint = document.getElementById('ffbHint');
-  if (!hint) return;
-  hint.textContent = 'Force feedback error: ' + (e && e.message ? e.message : e);
-  hint.classList.remove('hidden');
+const TAB_KEYS = ['wheel', 'axes', 'buttons'];
+
+function emptyState() {
+  return { axes: [], rawAxes: [], buttons: [], hats: [], reports: {}, timestamp: 0, reportId: null };
 }
 
-////////////////////////////////// Init SVGs 
+function defaultMapping() {
+  return {
+    wheel: { steering: null },
+    axes: Object.fromEntries(AXIS_ROWS.map(row => [row.key, null])),
+    buttons: Object.fromEntries(BUTTON_ACTIONS.map(key => [key, null]))
+  };
+}
 
-window.onload =  () => { setupSVG(); setupRotationControl(); updateFfbControls({ constant: false, periodic: false, any: false }); setupDiagnostics(); };
+function defaultSettings() {
+  return { ffbStrength: 0.25, ffbInvert: false, maxRotation: 900 };
+}
 
-function setupDiagnostics() {
-  const gatherBtn = document.getElementById('gatherDiag');
-  const stopBtn = document.getElementById('stopDiag');
-  const copyBtn = document.getElementById('copyDiag');
-  const issueLink = document.getElementById('reportDiag');
-  const statusEl = document.getElementById('diagStatus');
-  const outputEl = document.getElementById('diagOutput');
+function loadJson(key, fallback) {
+  try {
+    const raw = localStorage.getItem(key);
+    return raw ? JSON.parse(raw) : fallback;
+  } catch {
+    return fallback;
+  }
+}
 
-  let capturing = false, cap = null, onReport = null, timer = null, lastDiscover = 0;
+function saveJson(key, value) {
+  try { localStorage.setItem(key, JSON.stringify(value)); } catch { /* quota or disabled */ }
+}
 
-  function startCapture() {
-    if (!wheel || !wheel.device) { statusEl.textContent = 'Connect a wheel first.'; return; }
-    const dev = wheel.device;
-    cap = {};
-    capturing = true;
-    lastDiscover = 0;
-    gatherBtn.disabled = true;
-    stopBtn.classList.remove('hidden');
-    copyBtn.classList.add('hidden');
-    issueLink.classList.add('hidden');
-    outputEl.classList.add('hidden');
+function mergeMapping(saved) {
+  const base = defaultMapping();
+  if (!saved || typeof saved !== 'object') return base;
+  if (saved.wheel) base.wheel = { ...base.wheel, ...saved.wheel };
+  if (saved.axes) base.axes = { ...base.axes, ...saved.axes };
+  if (saved.buttons) base.buttons = { ...base.buttons, ...saved.buttons };
+  return base;
+}
 
-    onReport = (e) => {
-      const d = e.data, n = d.byteLength;
-      let s = cap[e.reportId];
-      if (!s) { s = cap[e.reportId] = { bytes: n, events: 0, min: new Array(n).fill(255), max: new Array(n).fill(0) }; lastDiscover = Date.now(); }
-      s.events++;
-      for (let i = 0; i < n; i++) {
-        const v = d.getUint8(i);
-        if (v < s.min[i]) { s.min[i] = v; lastDiscover = Date.now(); }
-        if (v > s.max[i]) { s.max[i] = v; lastDiscover = Date.now(); }
+const els = {
+  connect: document.getElementById('connectButton'),
+  export: document.getElementById('exportButton'),
+  download: document.getElementById('downloadButton'),
+  status: document.getElementById('statusText'),
+  deviceList: document.getElementById('deviceList'),
+  deviceHint: document.getElementById('deviceHint'),
+  tabs: document.getElementById('tabs'),
+  wheelMappings: document.getElementById('wheelMappings'),
+  axesMappings: document.getElementById('axesMappings'),
+  buttonMappings: document.getElementById('buttonMappings'),
+  defaultButtons: document.getElementById('defaultButtons'),
+  wheelHint: document.getElementById('wheelHint'),
+  maxRotation: document.getElementById('maxRotation'),
+  maxRotationValue: document.getElementById('maxRotationValue'),
+  strength: document.getElementById('strength'),
+  strengthValue: document.getElementById('strengthValue'),
+  force: document.getElementById('force'),
+  forceValue: document.getElementById('forceValue'),
+  invertFfb: document.getElementById('invertFfb'),
+  stopFfb: document.getElementById('stopFfb'),
+  debug: document.getElementById('debug'),
+  exportOutput: document.getElementById('exportOutput'),
+  exportText: document.getElementById('exportText'),
+  rim: document.getElementById('rim'),
+  steerArc: document.getElementById('steerArc'),
+  angleReadout: document.getElementById('angleReadout')
+};
+
+let savedDevices = loadJson(STORAGE.devices, []);
+let mapping = mergeMapping(loadJson(STORAGE.mappings, null));
+let settings = { ...defaultSettings(), ...(loadJson(STORAGE.settings, {}) || {}) };
+let sessions = [];
+let captures = [];
+let activeId = null;
+let activeTab = 'wheel';
+let armed = null;
+let nextId = 1;
+let lastDebugKey = '';
+let lastDebugValues = null;
+
+function setStatus(text, tone = '') {
+  els.status.textContent = text;
+  els.status.className = tone;
+}
+
+function deviceMeta(session) {
+  return {
+    vendorId: session.vendorId,
+    productId: session.productId,
+    productName: session.name,
+    kind: session.kind,
+    ffb: session.ffb
+  };
+}
+
+function sameDeviceMeta(a, b) {
+  return a && b && a.vendorId === b.vendorId && a.productId === b.productId && a.productName === b.productName;
+}
+
+function upsertSaved(meta) {
+  savedDevices = savedDevices.filter(item => !sameDeviceMeta(item, meta));
+  savedDevices.push(meta);
+  saveJson(STORAGE.devices, savedDevices);
+}
+
+function saveMappings() {
+  saveJson(STORAGE.mappings, mapping);
+}
+
+function saveSettings() {
+  saveJson(STORAGE.settings, settings);
+}
+
+function activeSession() {
+  return sessions.find(session => session.id === activeId) || null;
+}
+
+function activeWheel() {
+  const active = activeSession();
+  if (active && active.kind === 'wheel') return active;
+  return sessions.find(session => session.kind === 'wheel') || null;
+}
+
+function sessionLayout(session) {
+  if (!session) return { axes: [], buttons: [], hats: [] };
+  return session.kind === 'wheel'
+    ? session.wheel.inputLayout || { axes: [], buttons: [], hats: [] }
+    : session.generic.inputLayout || { axes: [], buttons: [], hats: [] };
+}
+
+function sessionState(session) {
+  if (!session) return emptyState();
+  if (session.kind === 'wheel') return session.wheel.deviceState || emptyState();
+  return session.generic.state;
+}
+
+function hex(value, width = 4) {
+  return '0x' + Number(value || 0).toString(16).toUpperCase().padStart(width, '0');
+}
+
+function actionLabel(key) {
+  if (key.startsWith('gear') && /^\d+$/.test(key.slice(4))) return `Gear ${key.slice(4)}`;
+  if (key === 'gearUp') return 'Gear up';
+  if (key === 'gearDown') return 'Gear down';
+  if (key === 'handbrake') return 'Handbrake';
+  if (key === 'reverse') return 'Reverse';
+  if (key === 'neutral') return 'Neutral';
+  if (key.startsWith('button')) return `Button ${key.slice(6)}`;
+  return key;
+}
+
+function sourceLabel(entry) {
+  if (!entry) return '';
+  if (entry.source === 'axis') return `Axis ${entry.index + 1}${entry.invert ? ' (inverted)' : ''}`;
+  if (entry.source === 'button') return `Button ${entry.index + 1}`;
+  if (entry.source === 'hat') return `Hat ${entry.index + 1} ${entry.direction}`;
+  return entry.source;
+}
+
+function entryLabel(entry) {
+  if (!entry) return 'Not set';
+  const name = entry.device?.productName || 'Device';
+  return `${name} · ${sourceLabel(entry)}`;
+}
+
+async function addDevice(device, options = {}) {
+  const { save = true, activate = true } = options;
+  const existing = sessions.find(session => session.device === device);
+  if (existing) {
+    if (activate) activeId = existing.id;
+    renderAll();
+    return existing;
+  }
+
+  const kind = isForceFeedbackWheel(device) ? 'wheel' : 'device';
+  const session = {
+    id: `dev${nextId++}`,
+    device,
+    kind,
+    vendorId: device.vendorId,
+    productId: device.productId,
+    name: device.productName || 'HID device',
+    wheel: null,
+    generic: null,
+    ffb: false
+  };
+
+  try {
+    if (kind === 'wheel') {
+      session.wheel = new WebHIDWheel({
+        maxRotation: settings.maxRotation,
+        ffbStrength: settings.ffbStrength,
+        ffbInvert: settings.ffbInvert
+      });
+      await session.wheel.connect(device);
+      session.ffb = session.wheel.ffbCaps?.constant === true || session.wheel.ffbCaps?.periodic === true;
+      session.wheel.on('input', () => handleSessionInput(session));
+      session.wheel.on('disconnect', () => handleDeviceDisconnect(session));
+      session.wheel.on('error', error => setStatus(String(error?.message || error), 'warn'));
+    } else {
+      session.generic = new WebHIDDevice();
+      await session.generic.connect(device);
+      session.generic.on('input', () => handleSessionInput(session));
+      session.generic.on('disconnect', () => handleDeviceDisconnect(session));
+      session.generic.on('error', error => setStatus(String(error?.message || error), 'warn'));
+    }
+  } catch (error) {
+    setStatus(`Failed to open ${session.name}: ${error?.message || error}`, 'warn');
+    return null;
+  }
+
+  sessions.push(session);
+  if (save) upsertSaved(deviceMeta(session));
+  if (activate || !activeId) activeId = session.id;
+  setStatus(`Connected ${session.name}`, 'ok');
+  renderAll();
+  return session;
+}
+
+function handleDeviceDisconnect(session) {
+  if (!sessions.includes(session)) return;
+  sessions = sessions.filter(item => item !== session);
+  if (activeId === session.id) activeId = sessions[0]?.id ?? null;
+  if (armed && armed.sessionId === session.id) cancelCapture('Device disconnected');
+  renderAll();
+}
+
+async function removeSession(session, keepSaved = false) {
+  sessions = sessions.filter(item => item !== session);
+  if (!keepSaved) {
+    savedDevices = savedDevices.filter(item => !sameDeviceMeta(item, deviceMeta(session)));
+    saveJson(STORAGE.devices, savedDevices);
+  }
+  if (activeId === session.id) activeId = sessions[0]?.id ?? null;
+  if (armed && armed.sessionId === session.id) cancelCapture('Device removed');
+  try {
+    if (session.wheel) await session.wheel.disconnect();
+    if (session.generic) await session.generic.disconnect();
+  } catch { /* noop */ }
+  renderAll();
+}
+
+function handleSessionInput(session) {
+  if (!sessions.includes(session)) return;
+  if (activeId === session.id) {
+    renderDebug(session);
+    renderWheelStatus();
+    renderWheelVisual();
+  }
+  if (armed && armed.sessionId === session.id) processCapture(session);
+}
+
+function beginCapture(scope, key, allowed, rowEl) {
+  if (armed && armed.scope === scope && armed.key === key) {
+    cancelCapture('Cancelled');
+    return;
+  }
+  if (armed) cancelCapture('');
+  const session = scope === 'wheel' ? activeWheel() : activeSession();
+  if (!session) { setStatus('Select a connected device first.', 'warn'); return; }
+  const layout = sessionLayout(session);
+  if (allowed.includes('axis') && !layout.axes.length) {
+    setStatus(`${session.name} exposes no axes.`, 'warn');
+    return;
+  }
+  if (allowed.includes('button') && !layout.buttons.length && !layout.hats.length) {
+    setStatus(`${session.name} exposes no buttons or hats.`, 'warn');
+    return;
+  }
+  armed = {
+    sessionId: session.id,
+    scope,
+    key,
+    allowed,
+    rowEl,
+    baseline: sessionState(session),
+    lastButtons: sessionState(session).buttons.slice(),
+    lastHats: sessionState(session).hats.map(hat => hat.direction),
+    axisIndex: null,
+    rawMin: Infinity,
+    rawMax: -Infinity,
+    samples: [],
+    result: null,
+    timer: null,
+    timeout: setTimeout(() => cancelCapture('Capture timed out'), 8000)
+  };
+  rowEl?.classList.add('armed');
+  setStatus(`Listening on ${session.name}. Move or press the input for ${scope === 'wheel' ? 'steering' : actionLabel(key)}.`);
+}
+
+function processCapture(session) {
+  if (!armed || armed.sessionId !== session.id) return;
+  const state = sessionState(session);
+  const baseline = armed.baseline;
+
+  if (armed.allowed.includes('button')) {
+    for (let index = 0; index < state.buttons.length; index++) {
+      if (state.buttons[index] && !armed.lastButtons[index]) {
+        finishCapture({ source: 'button', index });
+        return;
       }
-    };
-    dev.addEventListener('inputreport', onReport);
-
-    timer = setInterval(() => {
-      const ids = Object.keys(cap);
-      const events = ids.reduce((a, id) => a + cap[id].events, 0);
-      const live = (Date.now() - lastDiscover) < 800;
-      statusEl.textContent = (live ? '\u25cf new data \u2014 ' : '') + 'turn the wheel full-lock and press each button. reports: ' + ids.length + ' \u00b7 events: ' + events;
-      statusEl.classList.toggle('live', live);
-    }, 150);
+    }
+    for (let index = 0; index < state.hats.length; index++) {
+      const direction = state.hats[index]?.direction;
+      if (direction && direction !== armed.lastHats[index]) {
+        finishCapture({ source: 'hat', index, direction, raw: state.hats[index].raw });
+        return;
+      }
+    }
+    armed.lastButtons = state.buttons.slice();
+    armed.lastHats = state.hats.map(hat => hat.direction);
   }
 
-  function stopCapture() {
-    if (!capturing) return;
-    capturing = false;
-    clearInterval(timer);
-    wheel.device.removeEventListener('inputreport', onReport);
-    gatherBtn.disabled = false;
-    stopBtn.classList.add('hidden');
-    statusEl.classList.remove('live');
+  if (!armed.allowed.includes('axis')) return;
+  let bestIndex = -1;
+  let bestDelta = 0;
+  for (let index = 0; index < state.axes.length; index++) {
+    const delta = Math.abs((state.axes[index] ?? 0) - (baseline.axes[index] ?? 0));
+    if (delta > bestDelta) { bestDelta = delta; bestIndex = index; }
+  }
+  if (bestIndex < 0 || bestDelta < 0.04) return;
 
-    const dev = wheel.device;
-    const item = (i) => ({ usages: (i.usages || []).map(u => '0x' + (u >>> 0).toString(16)), size: i.reportSize, count: i.reportCount, logicalMin: i.logicalMinimum, logicalMax: i.logicalMaximum, isConstant: i.isConstant, isRange: i.isRange, isArray: i.isArray });
-    const reports = (list) => list.map(r => ({ id: r.reportId, items: r.items.map(item) }));
-    const payload = {
-      generatedAt: new Date().toISOString(),
-      userAgent: navigator.userAgent,
-      platform: navigator.platform,
-      device: { name: dev.productName, vendorId: dev.vendorId, productId: dev.productId },
-      matchedProfile: wheel.parserName || null,
-      ffbCaps: wheel.ffbCaps || null,
-      pidFfb: (wheel.pidFfb && wheel.pidFfb.info) || null,
-      collections: dev.collections.map(c => ({ usagePage: c.usagePage, usage: c.usage, input: reports(c.inputReports || []), output: reports(c.outputReports || []), feature: reports(c.featureReports || []) })),
-      capture: cap
-    };
-    outputEl.value = JSON.stringify(payload, null, 2);
-    outputEl.classList.remove('hidden');
-    copyBtn.classList.remove('hidden');
-    issueLink.classList.remove('hidden');
-    issueLink.href = 'https://github.com/joegaffey/webhid-wheel/issues/new?template=wheel-report.yml&title=' +
-      encodeURIComponent('Wheel report: ' + (dev.productName || 'unknown'));
-    statusEl.textContent = 'Stopped. Copy the JSON or open an issue.';
+  if (armed.axisIndex !== bestIndex) {
+    armed.axisIndex = bestIndex;
+    armed.rawMin = Infinity;
+    armed.rawMax = -Infinity;
+    armed.samples = [];
+  }
+  const raw = state.rawAxes[bestIndex];
+  armed.rawMin = Math.min(armed.rawMin, raw);
+  armed.rawMax = Math.max(armed.rawMax, raw);
+  if (!armed.samples.includes(raw)) armed.samples.push(raw);
+  if (!armed.timer) armed.timer = setTimeout(() => finishCapture(), 1400);
+}
+
+function finishCapture(result = null) {
+  if (!armed) return;
+  const session = sessions.find(item => item.id === armed.sessionId);
+  if (!session) { cancelCapture('Device unavailable'); return; }
+  const source = result || (armed.axisIndex !== null
+    ? { source: 'axis', index: armed.axisIndex }
+    : null);
+  if (!source) { cancelCapture('No input detected'); return; }
+
+  const layout = sessionLayout(session);
+  const entry = {
+    device: deviceMeta(session),
+    source: source.source,
+    index: source.index,
+    invert: false
+  };
+  if (source.source === 'axis') {
+    const axis = layout.axes[source.index];
+    entry.usage = axis?.usage;
+    entry.rawMin = armed.rawMin;
+    entry.rawMax = armed.rawMax;
+  } else if (source.source === 'hat') {
+    entry.direction = source.direction;
+    entry.raw = source.raw;
   }
 
-  gatherBtn.onclick = startCapture;
-  stopBtn.onclick = stopCapture;
-  issueLink.onclick = async () => {
-    try { await navigator.clipboard.writeText(outputEl.value); statusEl.textContent = 'JSON copied \u2014 paste it into the Diagnostics JSON field.'; }
-    catch (e) { statusEl.textContent = 'Copy failed \u2014 select the JSON box and copy manually.'; }
-  };
-  copyBtn.onclick = async () => {
-    try { await navigator.clipboard.writeText(outputEl.value); statusEl.textContent = 'Copied to clipboard.'; }
-    catch (e) { statusEl.textContent = 'Copy failed \u2014 select the text and copy manually.'; }
-  };
+  if (armed.scope === 'wheel') mapping.wheel[armed.key] = entry;
+  else if (armed.scope === 'axes') mapping.axes[armed.key] = entry;
+  else mapping.buttons[armed.key] = entry;
+
+  captures = captures.filter(item => !(item.scope === armed.scope && item.key === armed.key));
+  captures.push({
+    scope: armed.scope,
+    key: armed.key,
+    ...entry,
+    samples: source.source === 'axis' ? armed.samples.slice(0, 24) : []
+  });
+  saveMappings();
+  const label = armed.scope === 'wheel' ? 'Steering' : actionLabel(armed.key);
+  clearArmed();
+  setStatus(`Mapped ${label} to ${sourceLabel(entry)} on ${session.name}.`, 'ok');
+  renderAll();
 }
 
-function updateFfbControls(caps) {
-  ctrlStrengthEl.classList.toggle('hidden', !caps.constant);
-  ctrlForceEl.classList.toggle('hidden', !caps.constant);
-  document.getElementById('ctrlInvert').classList.toggle('hidden', !caps.constant);
-  ctrlRumbleEl.classList.toggle('hidden', !caps.periodic);
-  ctrlStopEl.classList.toggle('hidden', !caps.any);
-  document.getElementById('ffbHint').classList.toggle('hidden', !caps.any);
+function clearArmed() {
+  if (!armed) return;
+  clearTimeout(armed.timeout);
+  if (armed.timer) clearTimeout(armed.timer);
+  armed.rowEl?.classList.remove('armed');
+  armed = null;
 }
 
-function setupSVG() {
-  const inputsEl = document.getElementById('inputs');
-  wheelEl = document.getElementById('wheel');  
-  rimEl = document.getElementById('rim');  
-  steerArcEl = document.getElementById('steerArc');  
-  angleReadoutEl = document.getElementById('angleReadout');  
-  wheelNameEl = document.getElementById('wheelName');  
-  wheelProfileEl = document.getElementById('wheelProfile');  
-  debugEl = document.getElementById('debug');
-  ctrlStrengthEl = document.getElementById('ctrlStrength');
-  ctrlForceEl = document.getElementById('ctrlForce');
-  ctrlRumbleEl = document.getElementById('ctrlRumble');
-  ctrlStopEl = document.getElementById('ctrlStop');
-  buttonShapes = Array.from(inputsEl.getElementById('buttons').children);
-  axisShapes = Array.from(inputsEl.getElementById('axes').children);
+function cancelCapture(message) {
+  clearArmed();
+  if (message) setStatus(message);
 }
 
-function setupRotationControl() {
-  const input = document.getElementById('maxRotation');
-  const valueEl = document.getElementById('maxRotationValue');
-  maxRotation = parseInt(input.value);
-  input.oninput = () => {
-    maxRotation = parseInt(input.value);
-    valueEl.textContent = maxRotation;
-    if(wheel) wheel.maxRotation = maxRotation;
-  };
+function clearMapping(scope, key) {
+  mapping[scope][key] = null;
+  captures = captures.filter(item => !(item.scope === scope && item.key === key));
+  saveMappings();
+  renderAll();
+}
+
+function setInvert(scope, key, invert) {
+  const entry = mapping[scope][key];
+  if (!entry) return;
+  entry.invert = !!invert;
+  const capture = captures.find(item => item.scope === scope && item.key === key);
+  if (capture) capture.invert = !!invert;
+  saveMappings();
+}
+
+function mappingRow(scope, key, label, allowed, options = {}) {
+  const row = document.createElement('div');
+  row.className = 'mapping-row';
+  row.dataset.key = `${scope}:${key}`;
+
+  const labelEl = document.createElement('div');
+  labelEl.className = 'mapping-label';
+  labelEl.textContent = label;
+
+  const targetEl = document.createElement('div');
+  targetEl.className = 'mapping-target';
+  const entry = mapping[scope]?.[key] || null;
+  targetEl.textContent = entryLabel(entry);
+  if (entry) targetEl.classList.add('set');
+
+  const setButton = document.createElement('button');
+  setButton.className = 'ghost';
+  setButton.type = 'button';
+  setButton.textContent = 'Set';
+  setButton.addEventListener('click', () => beginCapture(scope, key, allowed, row));
+
+  const clearButton = document.createElement('button');
+  clearButton.className = 'ghost';
+  clearButton.type = 'button';
+  clearButton.textContent = 'Clear';
+  clearButton.disabled = !entry;
+  clearButton.addEventListener('click', () => clearMapping(scope, key));
+
+  row.append(labelEl, targetEl, setButton, clearButton);
+
+  if (options.invertable && entry && entry.source === 'axis') {
+    const invertWrap = document.createElement('label');
+    invertWrap.className = 'hint';
+    const input = document.createElement('input');
+    input.type = 'checkbox';
+    input.className = 'invert';
+    input.checked = !!entry.invert;
+    input.addEventListener('change', () => setInvert(scope, key, input.checked));
+    invertWrap.append(input, ' Invert');
+    row.append(invertWrap);
+  }
+  return row;
+}
+
+function renderDeviceList() {
+  els.deviceList.replaceChildren();
+  for (const session of sessions) {
+    const card = document.createElement('div');
+    card.className = 'device-card' + (session.id === activeId ? ' active' : '');
+    const text = document.createElement('div');
+    const name = document.createElement('div');
+    name.className = 'device-name';
+    name.textContent = session.name;
+    const meta = document.createElement('div');
+    meta.className = 'device-meta';
+    meta.textContent = `${hex(session.vendorId)}:${hex(session.productId)} · ${session.kind === 'wheel' ? 'wheel' : 'HID device'}`;
+    text.append(name, meta);
+
+    const badges = document.createElement('div');
+    badges.className = 'device-badges';
+    if (session.kind === 'wheel') {
+      const wheelBadge = document.createElement('span');
+      wheelBadge.className = 'badge';
+      wheelBadge.textContent = 'Wheel';
+      badges.append(wheelBadge);
+    }
+    if (session.ffb) {
+      const ffbBadge = document.createElement('span');
+      ffbBadge.className = 'badge ffb';
+      ffbBadge.textContent = 'FFB';
+      badges.append(ffbBadge);
+    }
+
+    const remove = document.createElement('button');
+    remove.className = 'device-remove';
+    remove.type = 'button';
+    remove.textContent = 'Remove';
+    remove.addEventListener('click', event => {
+      event.stopPropagation();
+      removeSession(session);
+    });
+
+    card.append(text, badges, remove);
+    card.addEventListener('click', () => {
+      activeId = session.id;
+      if (armed) cancelCapture('Device changed');
+      renderAll();
+    });
+    els.deviceList.append(card);
+  }
+
+  const savedOnly = savedDevices.filter(meta => !sessions.some(session => sameDeviceMeta(deviceMeta(session), meta)));
+  for (const meta of savedOnly) {
+    const card = document.createElement('div');
+    card.className = 'device-card';
+    const text = document.createElement('div');
+    const name = document.createElement('div');
+    name.className = 'device-name';
+    name.textContent = meta.productName || 'Saved device';
+    const info = document.createElement('div');
+    info.className = 'device-meta';
+    info.textContent = `${hex(meta.vendorId)}:${hex(meta.productId)} · saved`;
+    text.append(name, info);
+    const badge = document.createElement('span');
+    badge.className = 'badge warn';
+    badge.textContent = 'Needs permission';
+    card.append(text, badge);
+    els.deviceList.append(card);
+  }
+
+  els.deviceHint.className = 'hint';
+  if (!sessions.length) {
+    els.deviceHint.textContent = savedOnly.length
+      ? 'Saved devices need permission. Use Connect device to grant access again.'
+      : 'Connect a wheel, pedals, button box or handbrake. Each Connect adds one device.';
+  } else {
+    els.deviceHint.textContent = `${sessions.length} device${sessions.length === 1 ? '' : 's'} connected. Select a device, then use the tabs below.`;
+  }
+  els.export.disabled = sessions.length === 0;
+  els.download.disabled = sessions.length === 0;
+}
+
+function renderWheelMappings() {
+  els.wheelMappings.replaceChildren();
+  const wheel = activeWheel();
+  els.wheelHint.className = 'hint';
+  if (!wheel) {
+    els.wheelHint.textContent = 'No wheel connected. Connect a wheel or select one in the device list.';
+    const empty = document.createElement('p');
+    empty.className = 'hint';
+    empty.textContent = 'Steering mapping appears when a wheel is active.';
+    els.wheelMappings.append(empty);
+    return;
+  }
+  els.wheelHint.textContent = `${wheel.name}${wheel.ffb ? ' · force feedback available' : ' · no force feedback'}`;
+  els.wheelMappings.append(mappingRow('wheel', 'steering', 'Steering', ['axis'], { invertable: false }));
+}
+
+function renderAxesMappings() {
+  els.axesMappings.replaceChildren();
+  for (const row of AXIS_ROWS) {
+    els.axesMappings.append(mappingRow('axes', row.key, row.label, ['axis'], { invertable: true }));
+  }
+}
+
+function renderButtonMappings() {
+  els.buttonMappings.replaceChildren();
+  for (const key of BUTTON_ACTIONS) {
+    els.buttonMappings.append(mappingRow('buttons', key, actionLabel(key), ['button', 'hat']));
+  }
+}
+
+function renderDefaultButtons() {
+  els.defaultButtons.replaceChildren();
+  const session = activeSession();
+  if (!session) {
+    const hint = document.createElement('p');
+    hint.className = 'hint';
+    hint.textContent = 'Select a device to see its numbered buttons.';
+    els.defaultButtons.append(hint);
+    return;
+  }
+  const layout = sessionLayout(session);
+  const count = Math.min(layout.buttons.length, 32);
+  if (!count) {
+    const hint = document.createElement('p');
+    hint.className = 'hint';
+    hint.textContent = 'The active device exposes no buttons.';
+    els.defaultButtons.append(hint);
+    return;
+  }
+  for (let index = 0; index < count; index++) {
+    const key = `button${index + 1}`;
+    if (!(key in mapping.buttons)) mapping.buttons[key] = null;
+    els.defaultButtons.append(mappingRow('buttons', key, `Button ${index + 1}`, ['button', 'hat']));
+  }
+}
+
+function renderWheelStatus() {
+  const wheel = activeWheel();
+  if (!wheel) {
+    els.strength.disabled = true;
+    els.strengthValue.textContent = '25%';
+    els.force.disabled = true;
+    els.forceValue.textContent = '0%';
+    els.invertFfb.disabled = true;
+    els.stopFfb.disabled = true;
+    return;
+  }
+  els.maxRotation.disabled = false;
+  els.maxRotation.value = Math.round(wheel.wheel.maxRotation ?? settings.maxRotation);
+  els.maxRotationValue.textContent = `${els.maxRotation.value}°`;
+  els.strength.disabled = false;
+  els.force.disabled = !wheel.ffb;
+  els.invertFfb.disabled = !wheel.ffb;
+  els.stopFfb.disabled = !wheel.ffb;
+  els.strength.value = Math.round((wheel.wheel.ffbStrength ?? settings.ffbStrength) * 100);
+  els.strengthValue.textContent = `${els.strength.value}%`;
+  els.invertFfb.checked = !!wheel.wheel.ffbInvert;
+}
+
+function renderTab() {
+  els.tabs.querySelectorAll('.tab').forEach(tab => {
+    tab.classList.toggle('active', tab.dataset.tab === activeTab);
+  });
+  document.querySelectorAll('[data-panel]').forEach(panel => {
+    panel.classList.toggle('hidden', panel.dataset.panel !== activeTab);
+  });
+}
+
+function renderDebug(session) {
+  const state = sessionState(session);
+  const reportId = state.reportId;
+  const bytes = reportId === null ? null : state.reports[reportId];
+  if (!bytes) {
+    if (lastDebugKey !== 'empty') {
+      els.debug.innerHTML = '<div class="dbg-empty">No data</div>';
+      lastDebugKey = 'empty';
+      lastDebugValues = null;
+    }
+    return;
+  }
+  const key = `${session.id}:${reportId}:${bytes.join(',')}`;
+  if (key === lastDebugKey) return;
+  const cells = bytes.map((byte, index) => {
+    const changed = lastDebugValues && lastDebugValues[index] !== byte ? ' chg' : '';
+    return `<span class="dbg-byte${changed}" title="byte ${index} = ${byte} (0x${byte.toString(16).padStart(2, '0')})">${byte.toString(16).padStart(2, '0')}</span>`;
+  }).join('');
+  els.debug.innerHTML = `<div class="dbg-head">report ${reportId} · ${bytes.length} bytes</div><div class="dbg-grid">${cells}</div>`;
+  lastDebugKey = key;
+  lastDebugValues = bytes.slice();
+}
+
+function renderAll() {
+  renderDeviceList();
+  renderTab();
+  renderWheelMappings();
+  renderAxesMappings();
+  renderButtonMappings();
+  renderDefaultButtons();
+  renderWheelStatus();
+  renderWheelVisual();
+  const active = activeSession();
+  if (active) renderDebug(active);
+  else {
+    els.debug.innerHTML = '<div class="dbg-empty">No data</div>';
+    lastDebugKey = 'empty';
+    lastDebugValues = null;
+  }
 }
 
 function polar(cx, cy, r, deg) {
-  const a = (deg - 90) * Math.PI / 180;
-  return { x: +(cx + r * Math.cos(a)).toFixed(2), y: +(cy + r * Math.sin(a)).toFixed(2) };
+  const angle = (deg - 90) * Math.PI / 180;
+  return { x: +(cx + r * Math.cos(angle)).toFixed(2), y: +(cy + r * Math.sin(angle)).toFixed(2) };
 }
 
 function arcPath(cx, cy, r, deg) {
@@ -248,24 +696,183 @@ function arcPath(cx, cy, r, deg) {
   return `M ${start.x} ${start.y} A ${r} ${r} 0 ${large} ${sweep} ${end.x} ${end.y}`;
 }
 
-function renderDebug() {
-  const bytes = wheel.debug;
-  if (!bytes) return;
+function renderWheelVisual() {
+  const wheel = activeWheel();
+  const rotation = wheel?.wheel?.rotation;
+  if (rotation === undefined) {
+    els.rim.setAttribute('transform', 'rotate(180 150 150)');
+    els.steerArc.setAttribute('d', '');
+    els.angleReadout.textContent = 'No wheel';
+    return;
+  }
+  els.rim.setAttribute('transform', `rotate(${rotation + 180} 150 150)`);
+  els.steerArc.setAttribute('d', arcPath(150, 150, 86, Math.max(-360, Math.min(360, rotation))));
+  els.steerArc.style.opacity = Math.abs(rotation) < 0.5 ? 0 : 1;
+  els.angleReadout.textContent = `${rotation >= 0 ? '+' : ''}${Math.round(rotation)}°`;
+}
 
-  let same = lastDebug && lastDebug.length === bytes.length;
-  if (same) {
-    for (let i = 0; i < bytes.length; i++) {
-      if (bytes[i] !== lastDebug[i]) { same = false; break; }
+function serializeCollections(device) {
+  const item = source => ({
+    usages: (source.usages || []).map(value => '0x' + (value >>> 0).toString(16)),
+    size: source.reportSize,
+    count: source.reportCount,
+    logicalMin: source.logicalMinimum,
+    logicalMax: source.logicalMaximum,
+    isConstant: source.isConstant,
+    isRange: source.isRange,
+    isArray: source.isArray
+  });
+  const reports = list => list.map(report => ({ id: report.reportId, items: (report.items || []).map(item) }));
+  return device.collections.map(collection => ({
+    usagePage: collection.usagePage,
+    usage: collection.usage,
+    input: reports(collection.inputReports || []),
+    output: reports(collection.outputReports || []),
+    feature: reports(collection.featureReports || [])
+  }));
+}
+
+function buildExport() {
+  return {
+    kind: 'webhid-device-capture',
+    schemaVersion: 1,
+    generatedAt: new Date().toISOString(),
+    userAgent: navigator.userAgent,
+    devices: sessions.map(session => ({
+      captureId: session.id,
+      vendorId: session.vendorId,
+      productId: session.productId,
+      productName: session.name,
+      kind: session.kind,
+      ffb: session.ffb,
+      collections: serializeCollections(session.device),
+      layout: sessionLayout(session)
+    })),
+    captures,
+    mappings: mapping
+  };
+}
+
+async function copyExport() {
+  const json = JSON.stringify(buildExport(), null, 2);
+  els.exportText.value = json;
+  els.exportOutput.classList.remove('hidden');
+  try {
+    await navigator.clipboard.writeText(json);
+    setStatus('JSON copied to clipboard.', 'ok');
+  } catch {
+    setStatus('Copy failed; select the JSON box and copy manually.', 'warn');
+  }
+}
+
+function downloadExport() {
+  const json = JSON.stringify(buildExport(), null, 2);
+  const blob = new Blob([json], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement('a');
+  anchor.href = url;
+  anchor.download = `webhid-capture-${Date.now()}.json`;
+  anchor.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+  setStatus('JSON downloaded.', 'ok');
+}
+
+async function restoreSavedDevices() {
+  if (!savedDevices.length || !navigator.hid?.getDevices) return;
+  let devices = [];
+  try { devices = await navigator.hid.getDevices(); } catch { return; }
+  for (const meta of savedDevices) {
+    const device = devices.find(item =>
+      item.vendorId === meta.vendorId &&
+      item.productId === meta.productId &&
+      (item.productName || '') === (meta.productName || '') &&
+      !sessions.some(session => session.device === item));
+    if (device) {
+      try { await addDevice(device, { save: false, activate: false }); } catch { /* noop */ }
     }
   }
-  if (same) return;
-
-  const cells = [];
-  for (let i = 0; i < bytes.length; i++) {
-    const hex = bytes[i].toString(16).padStart(2, '0');
-    const changed = lastDebug && lastDebug[i] !== bytes[i] ? ' chg' : '';
-    cells.push(`<span class="dbg-byte${changed}" title="byte ${i} = ${bytes[i]} (0x${hex})">${hex}</span>`);
-  }
-  debugEl.innerHTML = `<div class="dbg-head">report ${wheel.reportId} &middot; ${bytes.length} bytes</div><div class="dbg-grid">${cells.join('')}</div>`;
-  lastDebug = Array.prototype.slice.call(bytes);
+  renderAll();
 }
+
+function applyWheelSettings() {
+  const wheel = activeWheel();
+  if (!wheel) return;
+  wheel.wheel.maxRotation = settings.maxRotation;
+  wheel.wheel.ffbStrength = settings.ffbStrength;
+  wheel.wheel.ffbInvert = settings.ffbInvert;
+}
+
+els.connect.addEventListener('click', async () => {
+  try {
+    const devices = await navigator.hid.requestDevice({ filters: [] });
+    if (!devices.length) return;
+    await addDevice(devices[0]);
+  } catch (error) {
+    setStatus(`Connect failed: ${error?.message || error}`, 'warn');
+  }
+});
+
+els.export.addEventListener('click', copyExport);
+els.download.addEventListener('click', downloadExport);
+
+els.tabs.addEventListener('click', event => {
+  const tab = event.target.closest('.tab');
+  if (!tab) return;
+  activeTab = tab.dataset.tab;
+  if (armed) cancelCapture('Tab changed');
+  renderTab();
+});
+
+els.maxRotation.addEventListener('input', () => {
+  settings.maxRotation = Number(els.maxRotation.value);
+  els.maxRotationValue.textContent = `${els.maxRotation.value}°`;
+  const wheel = activeWheel();
+  if (wheel) wheel.wheel.maxRotation = settings.maxRotation;
+  saveSettings();
+});
+
+els.strength.addEventListener('input', () => {
+  settings.ffbStrength = Number(els.strength.value) / 100;
+  els.strengthValue.textContent = `${els.strength.value}%`;
+  const wheel = activeWheel();
+  if (wheel) wheel.wheel.ffbStrength = settings.ffbStrength;
+  saveSettings();
+});
+
+els.invertFfb.addEventListener('change', () => {
+  settings.ffbInvert = els.invertFfb.checked;
+  const wheel = activeWheel();
+  if (wheel) wheel.wheel.ffbInvert = settings.ffbInvert;
+  saveSettings();
+});
+
+els.force.addEventListener('input', () => {
+  const value = Number(els.force.value) / 100;
+  els.forceValue.textContent = `${els.force.value}%`;
+  const wheel = activeWheel();
+  if (wheel?.wheel?.ffb) wheel.wheel.ffb.constantFast(value).catch(error => setStatus(String(error?.message || error), 'warn'));
+});
+
+els.stopFfb.addEventListener('click', () => {
+  const wheel = activeWheel();
+  els.force.value = 0;
+  els.forceValue.textContent = '0%';
+  if (wheel?.wheel?.ffb) wheel.wheel.ffb.stop().catch(error => setStatus(String(error?.message || error), 'warn'));
+});
+
+navigator.hid?.addEventListener('disconnect', event => {
+  const session = sessions.find(item => item.device === event.device);
+  if (session) handleDeviceDisconnect(session);
+});
+
+window.addEventListener('beforeunload', () => {
+  const wheel = activeWheel();
+  if (wheel?.wheel?.ffb) wheel.wheel.ffb.stop().catch(() => {});
+});
+
+(async () => {
+  renderAll();
+  await restoreSavedDevices();
+  if (!sessions.length) setStatus('No device connected');
+  applyWheelSettings();
+})();
