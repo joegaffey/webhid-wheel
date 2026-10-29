@@ -455,6 +455,18 @@ test('tabbed config switches panels while devices and profiles stay visible', as
   await expect(wheelTab).toHaveAttribute('aria-selected', 'true');
   await expect(panel.locator('[data-panel="wheel"]')).toBeVisible();
   await expect(panel.locator('[data-panel="axes"]')).toBeHidden();
+  const profileOrder = await panel.evaluate(element => {
+    const root = element.shadowRoot;
+    const profile = root.querySelector('[data-role="profile-select"]');
+    const tabs = root.querySelector('[role="tablist"]');
+    const devices = root.querySelector('webhid-device-picker');
+    return {
+      beforeTabs: !!(profile.compareDocumentPosition(tabs) & Node.DOCUMENT_POSITION_FOLLOWING),
+      beforeDevices: !!(profile.compareDocumentPosition(devices) & Node.DOCUMENT_POSITION_FOLLOWING)
+    };
+  });
+  expect(profileOrder.beforeTabs).toBe(true);
+  expect(profileOrder.beforeDevices).toBe(true);
 
   await axesTab.click();
   await expect(axesTab).toHaveAttribute('aria-selected', 'true');
@@ -496,4 +508,42 @@ test('config panel keeps the single-scroll layout without the tabbed attribute',
   expect(result.steering).toBe(true);
   expect(result.axes).toBe(true);
   expect(result.buttons).toBe(true);
+});
+
+test('config panel has no status banner and disables profile actions without a device', async ({ page }) => {
+  await page.goto('/');
+  const panel = page.locator('webhid-config-panel');
+  const hasStatus = await page.evaluate(() =>
+    !!document.querySelector('webhid-config-panel')?.shadowRoot?.querySelector('[data-role="status"]')
+  );
+  expect(hasStatus).toBe(false);
+  await expect(panel.locator('[data-action="save"]')).toBeDisabled();
+  await expect(panel.locator('.profiles [data-action="export"]')).toBeDisabled();
+
+  await page.evaluate(async () => {
+    const manager = window.__webhidDemo.manager;
+    const usage = (page, id) => (page << 16) | id;
+    const item = (usages, reportSize) => ({ usages, reportSize, reportCount: 1, logicalMinimum: 0, logicalMaximum: (1 << reportSize) - 1 });
+    const fake = {
+      collections: [{
+        usagePage: 1,
+        usage: 4,
+        inputReports: [{ reportId: 1, items: [item([usage(1, 0x30)], 16), item([usage(9, 1)], 1)] }],
+        outputReports: [],
+        featureReports: []
+      }],
+      productName: 'Action Wheel',
+      vendorId: 0x6001,
+      productId: 0x7001,
+      opened: false,
+      oninputreport: null,
+      async open() { this.opened = true; },
+      async close() { this.opened = false; },
+      async sendReport() {}
+    };
+    await manager.connect(fake);
+  });
+
+  await expect(panel.locator('[data-action="save"]')).toBeEnabled();
+  await expect(panel.locator('.profiles [data-action="export"]')).toBeEnabled();
 });

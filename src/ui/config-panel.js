@@ -158,7 +158,7 @@ export class WebHIDConfigPanel extends WebHIDElement {
     return `
       .panel { display: grid; gap: 8px; }
       .head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-      .profiles { display: grid; gap: 6px; padding-top: 8px; border-top: 1px solid var(--wheel-border-color, #2a303a); }
+      .profiles { display: grid; gap: 6px; padding-bottom: 8px; border-bottom: 1px solid var(--wheel-border-color, #2a303a); }
       .profiles .actions { align-items: center; }
       .profiles input[type="text"] { flex: 1 1 140px; min-width: 100px; }
       .profiles select { flex: 1 1 120px; min-width: 90px; }
@@ -215,19 +215,18 @@ export class WebHIDConfigPanel extends WebHIDElement {
         <slot name="header"><h3>Wheel configuration</h3></slot>
         <span class="badge" data-role="mode"></span>
       </div>
-      <div class="status" data-role="status" aria-live="polite"></div>
     `;
 
     if (!this.tabbed) {
       return `
         <div class="panel">
           ${head}
+          ${profiles}
           ${device}
           ${steering}
           ${axes}
           ${buttons}
           ${extraSettings}
-          ${profiles}
           ${footer}
         </div>
       `;
@@ -241,6 +240,7 @@ export class WebHIDConfigPanel extends WebHIDElement {
     return `
       <div class="panel">
         ${head}
+        ${profiles}
         ${device}
         <div class="tabs" role="tablist" aria-label="Wheel configuration sections">
           ${tab('wheel', 'Wheel')}
@@ -257,7 +257,6 @@ export class WebHIDConfigPanel extends WebHIDElement {
         <div class="tab-panel" id="buttons-panel" role="tabpanel" aria-labelledby="buttons-tab" data-panel="buttons"${this._activeTab === 'buttons' ? '' : ' hidden'}>
           ${buttons}
         </div>
-        ${profiles}
         ${footer}
       </div>
     `;
@@ -271,10 +270,6 @@ export class WebHIDConfigPanel extends WebHIDElement {
     root.querySelector('[data-role="file"]').addEventListener('change', (event) => this._import(event));
     root.querySelector('[data-role="profile-select"]').addEventListener('change', (event) => this._selectProfile(event.target.value));
     root.querySelector('[data-role="name"]').addEventListener('change', () => this._scheduleSave());
-    root.addEventListener('webhid-error', (event) => {
-      const error = event.detail && event.detail.error;
-      this._status(error ? (error.message || String(error)) : 'Unknown error', 'error');
-    });
     root.addEventListener('webhid-change', () => this._scheduleSave());
     root.addEventListener('webhid-connect', () => this._onConnect());
     if (this.tabbed) {
@@ -341,22 +336,16 @@ export class WebHIDConfigPanel extends WebHIDElement {
     const name = this.shadowRoot.querySelector('[data-role="name"]');
     if (name) name.value = profile.profileName;
     if (result.status === 'ambiguous') {
-      this._status(`Profile "${profile.profileName}" matches more than one device. Disconnect duplicates or choose a signature.`, 'error');
+      this._reportError(new Error(`Profile "${profile.profileName}" matches more than one device.`));
       this._refreshChildren();
       return false;
     }
     this._manager.applySetup(profile);
     if (result.status === 'matched') {
-      this._status(`Applied "${profile.profileName}".`, 'ready');
       this._pendingProfile = null;
       return true;
     }
     this._pendingProfile = profile;
-    if (result.status === 'partial') {
-      this._status(`Applied available devices for "${profile.profileName}". Connect the missing device(s).`, '');
-    } else {
-      this._status(`Profile "${profile.profileName}" loaded. Connect its matching device.`, '');
-    }
     this._refreshChildren();
     return false;
   }
@@ -374,7 +363,7 @@ export class WebHIDConfigPanel extends WebHIDElement {
       }
     } catch (error) {
       this._store = null;
-      this._status(`Stored profiles could not be loaded: ${error.message}`, 'error');
+      this._reportError(error);
     }
     if (this._store && this._store.activeProfile) {
       const active = this._store.profiles.find(profile => profile.profileName === this._store.activeProfile);
@@ -414,11 +403,10 @@ export class WebHIDConfigPanel extends WebHIDElement {
         profiles: [profile]
       };
       this._profiles.saveStore(this._store);
-      this._status(`Migrated saved wheel settings to "${profile.profileName}".`, 'ready');
       this._refreshProfileSelect();
       this._refreshChildren();
     } catch (error) {
-      this._status(`Could not migrate saved settings: ${error.message}`, 'error');
+      this._reportError(error);
     }
   }
 
@@ -426,10 +414,7 @@ export class WebHIDConfigPanel extends WebHIDElement {
     const connected = this._manager
       ? this._manager.sessionList.filter(entry => entry.session && entry.session.isConnected)
       : [];
-    if (!connected.length) {
-      this._status('Connect a device before saving or exporting a profile.', 'error');
-      return null;
-    }
+    if (!connected.length) return null;
     const nameInput = this.shadowRoot.querySelector('[data-role="name"]');
     const existing = this._store && this._store.activeProfile
       ? this._store.profiles.find(profile => profile.profileName === this._store.activeProfile)
@@ -441,7 +426,7 @@ export class WebHIDConfigPanel extends WebHIDElement {
         metadata: existing ? existing.metadata : {}
       }));
     } catch (error) {
-      this._status(error.message, 'error');
+      this._reportError(error);
       return null;
     }
   }
@@ -461,10 +446,9 @@ export class WebHIDConfigPanel extends WebHIDElement {
     };
     try {
       this._profiles.saveStore(this._store);
-      this._status(`Saved "${profile.profileName}".`, 'ready');
       this._refreshProfileSelect();
     } catch (error) {
-      this._status(`Could not save profile: ${error.message}`, 'error');
+      this._reportError(error);
     }
   }
 
@@ -523,7 +507,7 @@ export class WebHIDConfigPanel extends WebHIDElement {
       this._refreshProfileSelect();
       this.emit('webhid-profile-change', { profile, action: 'import' });
     } catch (error) {
-      this._status(`Could not import profile: ${error.message}`, 'error');
+      this._reportError(error);
     }
   }
 
@@ -549,15 +533,14 @@ export class WebHIDConfigPanel extends WebHIDElement {
     }
   }
 
-  _status(text, tone = '') {
-    const status = this.shadowRoot && this.shadowRoot.querySelector('[data-role="status"]');
-    if (!status) return;
-    status.textContent = text;
-    status.className = `status ${tone}`.trim();
+  _reportError(error) {
+    const normalized = error instanceof Error ? error : new Error(String(error));
+    console.warn('webhid-wheel profile:', normalized);
+    this.emit('webhid-error', { error: normalized });
   }
 
   refresh() {
-    if (!this.shadowRoot || !this.shadowRoot.querySelector('[data-role="status"]')) return;
+    if (!this.shadowRoot || !this.shadowRoot.querySelector('[data-role="profile-select"]')) return;
     this._ensureManager();
     this._ensureProfiles();
     this._syncChildren();
@@ -566,11 +549,10 @@ export class WebHIDConfigPanel extends WebHIDElement {
     const mode = this.shadowRoot.querySelector('[data-role="mode"]');
     if (mode) mode.textContent = 'WebHID';
     const connected = this._manager ? this._manager.sessionList.filter(entry => entry.session && entry.session.isConnected) : [];
-    if (connected.length) {
-      this._status(`${connected.length} device${connected.length === 1 ? '' : 's'} connected. Settings save to this browser.`, 'ready');
-    } else if (this._pendingProfile) {
-      this._status(`Profile "${this._pendingProfile.profileName}" loaded. Connect its matching device.`, '');
-    }
+    const save = this.shadowRoot.querySelector('[data-action="save"]');
+    const exportButton = this.shadowRoot.querySelector('[data-action="export"]');
+    if (save) save.disabled = !connected.length;
+    if (exportButton) exportButton.disabled = !connected.length;
   }
 }
 
