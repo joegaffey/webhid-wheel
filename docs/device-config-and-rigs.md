@@ -1,7 +1,7 @@
 # HID device mapping and capture
 
 Status: mapping, setup profiles and config elements implemented in
-`webhid-wheel` 0.4.37 (2026-10-29). See the
+`webhid-wheel` 0.4.38 (2026-10-29). See the
 [component integration guide](./component-integration.md) for the consumer
 contract.
 
@@ -53,6 +53,11 @@ device twice.
 Mapping rows reference a device and an input. The same device can provide
 multiple channels.
 
+Driver detection treats a device as a wheel only when it matches a known
+protocol profile, exposes FFB, or has a wheel/racing/steering product name.
+Other joystick-like devices remain generic: they still expose axes, buttons and
+hats, but do not get a steering capability or pill.
+
 ## Device state
 
 `WebHIDDevice.state`:
@@ -95,11 +100,11 @@ buttons, axes and hats.
 Fixed actions:
 
 ```text
+gearUp
+gearDown
 reverse
 neutral
 gear1 .. gear8
-gearUp
-gearDown
 handbrake
 Button 1 .. Button N
 ```

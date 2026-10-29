@@ -81,12 +81,14 @@ test('axis and button mappers render their default rows', async ({ page }) => {
     return {
       axisRows: axes.shadowRoot.querySelectorAll('[data-channel]').length,
       buttonRows: buttons.shadowRoot.querySelectorAll('[data-channel]').length,
+      firstButtons: [...buttons.shadowRoot.querySelectorAll('[data-channel]')].slice(0, 2).map(row => row.dataset.channel),
       hasThrottle: !!axes.shadowRoot.querySelector('[data-channel="throttle"]'),
       hasShiftUp: !!buttons.shadowRoot.querySelector('[data-channel="gearUp"]')
     };
   });
   expect(result.axisRows).toBe(4);
   expect(result.buttonRows).toBe(13);
+  expect(result.firstButtons).toEqual(['gearUp', 'gearDown']);
   expect(result.hasThrottle).toBe(true);
   expect(result.hasShiftUp).toBe(true);
 });
@@ -709,6 +711,13 @@ test('device pills show only relevant capabilities and no connection state pill'
       outputReports: [],
       featureReports: []
     }], 0x8002, 0x9002));
+    await manager.connect(fake('Xbox 360 Wireless Receiver for Windows', [{
+      usagePage: 1,
+      usage: 4,
+      inputReports: [{ reportId: 3, items: [item([usage(1, 0x30)], 16), item([usage(9, 1)], 1, 8)] }],
+      outputReports: [],
+      featureReports: []
+    }], 0x045e, 0x028e));
     await new Promise(resolve => setTimeout(resolve, 40));
 
     const panel = document.querySelector('webhid-config-panel');
@@ -723,10 +732,13 @@ test('device pills show only relevant capabilities and no connection state pill'
 
   const wheel = result.find(row => row.name === 'Pill Wheel');
   const pedals = result.find(row => row.name === 'Pill Pedals');
+  const receiver = result.find(row => row.name === 'Xbox 360 Wireless Receiver for Windows');
   expect(wheel.pills).toEqual(['steering', '1 axis', '8 buttons']);
   expect(pedals.pills).toEqual(['1 axis']);
+  expect(receiver.pills).toEqual(['1 axis', '8 buttons']);
   expect(wheel.meta).toMatch(/^0x8001:0x9001 · HID device · #[0-9a-f]{6}$/);
   expect(pedals.meta).toMatch(/^0x8002:0x9002 · HID device · #[0-9a-f]{6}$/);
+  expect(receiver.meta).toMatch(/^0x045e:0x028e · HID device · #[0-9a-f]{6}$/i);
   expect(wheel.meta).not.toContain('device-');
   expect(result.flatMap(row => row.pills)).not.toContain('on');
   expect(result.flatMap(row => row.pills)).not.toContain('off');

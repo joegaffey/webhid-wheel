@@ -183,7 +183,7 @@ WebHIDWheel.registerProfile({
 | CAMMUS C5 | steering, buttons, axes | constant force (USB-PID) | **Yes** (Windows 11, Chrome) |
 | CAMMUS C12 | steering, buttons, axes | constant force (USB-PID) | No |
 | FFBeast | steering | constant force | **Yes** (Windows 11, Chrome) |
-| Any standard-descriptor HID wheel | steering/axes/buttons (generic) | — | No |
+| Any other HID wheel with a wheel-like product name | steering/axes/buttons (generic) | — | No |
 | Any USB-PID FFB device | — | constant force (auto-detected) | No |
 
 Only **CAMMUS C5** and **FFBeast** have been verified on hardware, both on

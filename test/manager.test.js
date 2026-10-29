@@ -200,6 +200,27 @@ test('a gamepad with an X axis is not classified as a wheel', async () => {
   assert.equal(manager.getCalibration().device, null);
 });
 
+test('a joystick-like receiver without wheel naming is not classified as a wheel', async () => {
+  const manager = new WheelManager();
+  const receiver = new FakeDevice('Xbox 360 Wireless Receiver for Windows', [{
+    usagePage: 0x01,
+    usage: 0x04,
+    inputReports: [{
+      reportId: 1,
+      items: [
+        item([usage(0x01, 0x30)], 16, 1, 0, 65535),
+        item([usage(0x09, 0x01)], 1, 8, 0, 1)
+      ]
+    }],
+    outputReports: [],
+    featureReports: []
+  }], 0x045e, 0x028e);
+  const entry = await manager.connect(receiver);
+  assert.equal(entry.driver, 'generic');
+  assert.equal(entry.capabilities.steering, false);
+  assert.equal(manager.getCalibration().device, null);
+});
+
 test('WheelManager reuses a disconnected session by hardware signature', async () => {
   const manager = new WheelManager();
   const first = new FakeDevice('Reusable Wheel', wheelDescriptor(), 0x5151, 0x6161);

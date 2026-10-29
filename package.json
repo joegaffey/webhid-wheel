@@ -1,6 +1,6 @@
 {
   "name": "webhid-wheel",
-  "version": "0.4.37",
+  "version": "0.4.38",
   "description": "Read USB HID steering wheels in the browser over WebHID — steering, buttons, pedals and force feedback. ESM library + UI components + demo.",
   "type": "module",
   "main": "./dist/core/index.js",

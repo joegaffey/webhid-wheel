@@ -351,11 +351,7 @@ export function detectDeviceCapabilities(device) {
   const name = device.productName || '';
   const gamepadName = /gamepad|game pad|controller|joypad/i.test(name);
   const wheelName = /wheel|racing|steering|force feedback|\bffb\b/i.test(name);
-  const topUsage = (device.collections || [])
-    .filter(collection => collection.usagePage === 0x01)
-    .map(collection => collection.usage)
-    .find(usage => usage !== undefined);
-  const isWheel = !!profile || ffb || (!gamepadName && (wheelName || (steeringLayout && topUsage === 0x04)));
+  const isWheel = !!profile || ffb || (!gamepadName && wheelName);
   return {
     steering: isWheel ? steering : false,
     ffb,

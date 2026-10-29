@@ -1,6 +1,8 @@
 import { WebHIDElement } from './base.js';
 
 export const BUTTON_ACTIONS = [
+  ['gearUp', 'Shift up'],
+  ['gearDown', 'Shift down'],
   ['reverse', 'Reverse'],
   ['neutral', 'Neutral'],
   ['gear1', 'Gear 1'],
@@ -11,8 +13,6 @@ export const BUTTON_ACTIONS = [
   ['gear6', 'Gear 6'],
   ['gear7', 'Gear 7'],
   ['gear8', 'Gear 8'],
-  ['gearUp', 'Shift up'],
-  ['gearDown', 'Shift down'],
   ['handbrake', 'Handbrake']
 ];
 
