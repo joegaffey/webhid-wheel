@@ -40,12 +40,11 @@
       header p { margin: 0 auto; max-width: 760px; color: var(--muted); font-size: .95rem; }
       .toolbar { display: flex; gap: 10px; align-items: center; justify-content: center; margin-top: 16px; flex-wrap: wrap; }
       .button {
-        appearance: none; cursor: pointer; background: #11151d; color: var(--text);
-        border: 1px solid var(--border); border-radius: 999px; padding: 8px 16px;
-        font: inherit; font-size: .9rem; font-weight: 600;
+        appearance: none; cursor: pointer; background: #080a0d; color: var(--text);
+        border: 1px solid var(--border); border-radius: 3px; padding: 3px 7px;
+        font: inherit; font-size: 12px; font-weight: 400; min-height: 26px;
       }
-      .button:hover:not(:disabled) { border-color: var(--accent); color: var(--accent-2); }
-      .button.primary { border-color: transparent; background: linear-gradient(180deg, var(--accent-2), var(--accent)); color: #08111f; }
+      .button:hover:not(:disabled) { border-color: var(--accent); }
       .button:disabled { opacity: .45; cursor: default; }
       .panel {
         background: linear-gradient(180deg, var(--panel), var(--panel-2));
@@ -79,9 +78,10 @@
       #rim line, #rim ellipse { fill: none; stroke: #c6cfdf; stroke-width: 10; stroke-linecap: round; }
       #steerArc { stroke: var(--accent); fill: none; stroke-width: 5; stroke-linecap: round; }
       #angleReadout { fill: var(--muted); font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 15px; }
-      .control { display: grid; grid-template-columns: 110px minmax(0, 1fr) 56px; align-items: center; gap: 10px; min-height: 28px; }
-      .control label { color: var(--muted); font-size: .84rem; }
-      .control .val { font-variant-numeric: tabular-nums; color: var(--text); font-weight: 600; min-width: 46px; text-align: right; }
+      .control { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 3px 8px; margin: 6px 0; min-height: 28px; }
+      .control > label { grid-column: 1; grid-row: 1; color: var(--muted); font-size: .84rem; }
+      .control > .val { grid-column: 2; grid-row: 1; font-variant-numeric: tabular-nums; color: var(--text); font-weight: 600; min-width: 46px; text-align: right; }
+      .control > input[type="range"] { grid-column: 1 / -1; grid-row: 2; width: 100%; }
       input[type="range"] { width: 100%; accent-color: var(--accent); }
       .hint { margin: 0; color: var(--muted); font-size: .82rem; }
       #debug { margin: 0; max-height: 190px; overflow: auto; background: #0b0d12; border: 1px solid var(--border); border-radius: 10px; }

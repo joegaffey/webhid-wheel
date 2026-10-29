@@ -1502,3 +1502,53 @@ test('delete follows save and clearing the selected profile clears the name', as
   expect(result.selectedName).toBe('Order Profile');
   expect(result.clearedName).toBe('');
 });
+
+test('constant force uses the same label/row layout as Force gain on mobile', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto('/');
+  const layout = await page.evaluate(() => {
+    const input = document.querySelector('#force');
+    const control = input.closest('.control');
+    const label = control.querySelector('label');
+    const value = control.querySelector('.val');
+    const inputBox = input.getBoundingClientRect();
+    const labelBox = label.getBoundingClientRect();
+    const valueBox = value.getBoundingClientRect();
+    const controlBox = control.getBoundingClientRect();
+    return {
+      inputWidth: inputBox.width,
+      controlWidth: controlBox.width,
+      labelAndValueSameRow: Math.abs(
+        (labelBox.top + labelBox.bottom) / 2 - (valueBox.top + valueBox.bottom) / 2
+      ) < 10,
+      sliderBelow: inputBox.top >= labelBox.bottom
+    };
+  });
+  expect(layout.labelAndValueSameRow).toBe(true);
+  expect(layout.sliderBelow).toBe(true);
+  expect(layout.inputWidth).toBeGreaterThan(layout.controlWidth * 0.9);
+});
+
+test('FFB test buttons match the component button style', async ({ page }) => {
+  await page.goto('/');
+  const styles = await page.evaluate(() => {
+    const panel = document.querySelector('webhid-config-panel');
+    const ffb = getComputedStyle(document.querySelector('#applyForce'));
+    const save = getComputedStyle(panel.shadowRoot.querySelector('[data-action="save"]'));
+    return {
+      ffb: {
+        borderRadius: ffb.borderRadius,
+        fontSize: ffb.fontSize,
+        minHeight: ffb.minHeight,
+        padding: ffb.padding
+      },
+      save: {
+        borderRadius: save.borderRadius,
+        fontSize: save.fontSize,
+        minHeight: save.minHeight,
+        padding: save.padding
+      }
+    };
+  });
+  expect(styles.ffb).toEqual(styles.save);
+});
