@@ -1,6 +1,9 @@
 # HID device mapping and capture
 
-Status: mapping implemented on `feature/webhid-device-mapping` (2026-10-28); setup profiles and config elements added on `feature/core-ui-package` (2026-10-29).
+Status: mapping, setup profiles and config elements implemented in
+`webhid-wheel` 0.4.33 (2026-10-29). See the
+[component integration guide](./component-integration.md) for the consumer
+contract.
 
 This document describes the current multi-device direction. The earlier
 `WebHIDRig` proposal has been dropped: there is no mandatory rig object and no
@@ -298,6 +301,7 @@ Next:
 
 ## Related documents
 
+- [Component integration guide](./component-integration.md)
 - [Package, setup profiles and Lapster integration plan](./lapster-integration-plan.md)
 - [Logitech, Thrustmaster and Fanatec FFB workarounds](./vendor-ffb-workarounds.md)
 - [PadForge wheel bridge for WebHID](./padforge-wheel-bridge.md)

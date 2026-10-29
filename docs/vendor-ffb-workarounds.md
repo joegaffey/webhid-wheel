@@ -1,6 +1,6 @@
 # Logitech, Thrustmaster and Fanatec FFB workarounds
 
-Status: classic Logitech constant force is implemented for G29 and Driving Force GT. T248 direct WebHID is blocked on Windows; the PadForge bridge is documented in [PadForge wheel bridge for WebHID](./padforge-wheel-bridge.md). Fanatec and Logitech HID++ models remain research notes.
+Status: classic Logitech constant force is implemented for G29 and Driving Force GT but has not been hardware-verified. Only CAMMUS C5 and FFBeast are hardware-verified. T248 direct WebHID is blocked on Windows; the PadForge bridge is documented in [PadForge wheel bridge for WebHID](./padforge-wheel-bridge.md). Fanatec and Logitech HID++ models remain research notes.
 
 This document records what would be needed to support force feedback for Logitech, Thrustmaster and Fanatec wheelbases over WebHID. These vendors do not expose the standard USB HID PID path that CAMMUS and Moza expose, so the generic PID implementation will not provide FFB for them.
 
@@ -8,7 +8,7 @@ This document records what would be needed to support force feedback for Logitec
 
 | Vendor / family | Input | FFB | Work required |
 | --- | --- | --- | --- |
-| Logitech G25/G27/G29/DFGT/MOMO/DFP | Generic likely | Vendor FF protocol | Custom FFB profile using vendor output reports |
+| Logitech G25/G27/G29/DFGT/MOMO/DFP | Generic likely | Vendor FF protocol | G29/DFGT implemented but unverified; G25/G27/MOMO/DFP need a profile |
 | Logitech G923 PS | Generic likely | Vendor FF protocol + TrueForce | Custom FFB profile; TrueForce extra |
 | Logitech G920/G923 Xbox/G Pro | Generic likely | HID++ | HID++ feature discovery and vendor reports |
 | Thrustmaster T248 | Generic | Vendor protocol, report `0x60` | Blocked in WebHID on Windows; use the PadForge bridge or Linux `hid-tmff2` |
@@ -29,9 +29,10 @@ The current Windows workaround is to run PadForge with its HIDMaestro virtual HI
 
 On Linux, `hid-tmff2` can rewrite the descriptor to expose report `0x60`, which may make direct WebHID possible. That path has not yet been verified on hardware.
 
-## Implemented: G29 and Driving Force GT
+## Implemented, not hardware-verified: G29 and Driving Force GT
 
-The classic Logitech path is implemented for:
+The classic Logitech path is implemented for these wheels, but has not been
+verified on hardware:
 
 - Logitech G29 (`046d:c24f`, `046d:c260`)
 - Logitech Driving Force GT (`046d:c29a`)

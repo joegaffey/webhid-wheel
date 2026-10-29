@@ -1,13 +1,15 @@
 # Package, setup profiles and Lapster integration plan
 
-Status: implemented through 0.4.33 on `feature/core-ui-package` (2026-10-29), pending dev
-verification. Supersedes the downloaded `webhid_integration_task_spec.md`. This
-document is the working contract for splitting `webhid-wheel` into a core
-package and a UI package, adding portable setup profiles, and replacing
-Lapster's vendored copy.
+Status: implemented through 0.4.33 on `feature/core-ui-package` (2026-10-29).
+The dev preview is deployed; hardware acceptance is still pending. Supersedes
+the downloaded `webhid_integration_task_spec.md`. This document is the working
+contract for splitting `webhid-wheel` into a core package and a UI package,
+adding portable setup profiles, and replacing Lapster's vendored copy.
 
 Related documents:
 
+- [Component integration guide](./component-integration.md) — canonical
+  consumer contract for humans and coding agents.
 - [HID device mapping and capture](./device-config-and-rigs.md)
 - [Logitech, Thrustmaster and Fanatec FFB workarounds](./vendor-ffb-workarounds.md)
 - [PadForge wheel bridge for WebHID](./padforge-wheel-bridge.md)
@@ -419,14 +421,18 @@ No `navigator.hid`, `document` or `localStorage` access at module top level.
 
 | Element | Purpose | Properties | Events |
 | --- | --- | --- | --- |
-| `<webhid-device-picker>` | Add one device, list sessions, remove, hot-plug, authorization | `manager`, `filters` | `webhid-connect`, `webhid-copy`, `webhid-export`, `webhid-authorization-required`, `webhid-error` |
-| `<webhid-steering-config>` | Steering source, force output, deadzone, saturation, rotation, invert, FFB gain | `manager`, `settings` | `webhid-change` |
-| `<webhid-axis-mapper>` | Throttle, brake, clutch, handbrake assignment and telemetry, bound to a session | `manager`, `mapping` | `webhid-capture`, `webhid-change` |
-| `<webhid-button-mapper>` | Shift, paddle, UI action mapping, bound to a session | `manager`, `mapping` | `webhid-capture`, `webhid-change` |
-| `<webhid-config-panel>` | Composite panel and profile import/export/delete; optional tabs | `manager`, `profiles`, `storageKey`, `tabbed`, `activeTab` | `webhid-ready`, `webhid-tab-change`, `webhid-profile-change`, `webhid-error` |
+| `<webhid-device-picker>` | Add one device, list sessions, remove, hot-plug, authorization | `manager`, `profiles`, `filters`, `selectedId`, `profileDevices` | `webhid-connect`, `webhid-select`, `webhid-remove-device`, `webhid-authorization-required`, `webhid-copy`, `webhid-export`, `webhid-error` |
+| `<webhid-steering-config>` | Steering source, force output, deadzone, saturation, rotation, invert, FFB gain | `manager`, `profiles`, `settings` | `webhid-change` |
+| `<webhid-axis-mapper>` | Throttle, brake, clutch, handbrake assignment and telemetry, bound to a session | `manager`, `profiles`, `mapping` | `webhid-capture`, `webhid-change` |
+| `<webhid-button-mapper>` | Shift, paddle, UI action mapping, bound to a session | `manager`, `profiles`, `mapping` | `webhid-capture`, `webhid-change` |
+| `<webhid-config-panel>` | Composite panel and profile import/export/delete; optional tabs | `manager`, `profiles`, `storageKey`, `tabbed`, `activeTab` | `webhid-tab-change`, `webhid-profile-change`, `webhid-error` |
 
 All events are `bubbles: true` and `composed: true`. Event `detail` objects are
-plain data except `webhid-ready`, which includes the manager.
+plain data except `webhid-error`, which contains an `Error`. The panel does not
+emit `webhid-ready`; use the manager lifecycle events and `webhid-connect` on
+the picker. `webhid-profile-change` currently fires on import only. The full
+event and detail contract is in the
+[component integration guide](./component-integration.md#7-events).
 
 `<webhid-device-picker>` subscribes to `navigator.hid` `connect` and `disconnect`
 events and updates status. It shows active sessions plus profile device slots that
@@ -446,7 +452,7 @@ Lapster can keep its `WheelFfb` adapter as the source of truth.
   `--wheel-bg-color`, `--wheel-fg-color`, `--wheel-muted-color`,
   `--wheel-accent`, `--wheel-border-color`, `--wheel-radius`, `--wheel-font`,
   `--wheel-success`, `--wheel-danger`.
-- Expose `part` attributes for advanced host styling.
+- Theme through CSS variables and slots. No `part` hooks are exposed yet.
 - Use `:host([hidden]) { display: none; }` and never set layout on `:host`
   beyond `display`.
 
@@ -460,7 +466,8 @@ Lapster can keep its `WheelFfb` adapter as the source of truth.
 - `steering-visual`: optional visual placed at the top of the steering card.
 - `steering-extra`: optional app controls placed after the force-feedback
   settings.
-- `extra-settings`: other app-specific controls. Lapster puts its feel mixer
+- `extra-settings`: other app-specific controls. Rendered in the Wheel tab when
+  `tabbed`, or after the mapping sections otherwise. Lapster puts its feel mixer
   here so `rearLightening`, `frontShudder`, `roadNoise`, `roughness`, and related
   settings are not lost.
 - `footer`: status or diagnostics.
@@ -672,7 +679,9 @@ the default.
 
 - Manual CAMMUS C5 check: steering, constant FFB, stop, watchdog, profile
   reconnect, panel controls.
-- Best-effort C12/FFBeast check if hardware is available.
+- FFBeast is the other hardware-verified FFB baseline.
+- Best-effort C12 check if hardware is available; it is implemented but not
+  hardware-verified.
 - Verify Chromium, WebHID-unavailable fallback, and Lapster's mobile layout.
 - Tag `webhid-wheel@0.4.33`, pin the revision in Lapster, update docs.
 

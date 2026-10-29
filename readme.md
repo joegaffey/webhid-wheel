@@ -148,8 +148,16 @@ Pedals & axes and Buttons tabs while Setup profile stays below. Without
 
 The panel is themed with `--wheel-bg-color`, `--wheel-fg-color`,
 `--wheel-muted-color`, `--wheel-accent`, `--wheel-border-color`,
-`--wheel-radius` and `--wheel-font`. The package and integration details are in
-the [package and Lapster integration plan](./docs/lapster-integration-plan.md).
+`--wheel-radius`, `--wheel-font`, `--wheel-success` and `--wheel-danger`.
+
+### Component integration
+
+The canonical setup, properties, slots, events, profile storage, theming and
+troubleshooting contract is in the
+[component integration guide](./docs/component-integration.md). It is written
+for application developers and coding agents. The package architecture and the
+Lapster migration are in the
+[package and Lapster integration plan](./docs/lapster-integration-plan.md).
 
 ### Custom wheel profiles
 
@@ -164,19 +172,22 @@ WebHIDWheel.registerProfile({
 
 ## Supported wheels
 
-| Wheel | Input | FFB |
-| --- | --- | --- |
-| Thrustmaster T248 | steering, buttons, axes (generic) | — direct WebHID; [PadForge bridge](./docs/padforge-wheel-bridge.md) on Windows |
-| Thrustmaster T300RS | steering, buttons | — |
-| Logitech G29 (`c24f`, `c260`) | steering, buttons, axes | constant force (classic Logitech) |
-| Logitech Driving Force GT | steering, buttons | constant force (classic Logitech) |
-| CAMMUS C5 | steering, buttons, axes | constant force (USB-PID, verified) |
-| CAMMUS C12 | steering, buttons, axes | constant force (USB-PID) |
-| FFBeast | steering | constant force |
-| Any standard-descriptor HID wheel | steering/axes/buttons (generic) | — |
-| Any USB-PID FFB device | — | constant force (auto-detected) |
+| Wheel | Input | FFB | Verified |
+| --- | --- | --- | --- |
+| Thrustmaster T248 | steering, buttons, axes (generic) | — direct WebHID; [PadForge bridge](./docs/padforge-wheel-bridge.md) on Windows | No |
+| Thrustmaster T300RS | steering, buttons | — | No |
+| Logitech G29 (`c24f`, `c260`) | steering, buttons, axes | constant force (classic Logitech) | No |
+| Logitech Driving Force GT | steering, buttons | constant force (classic Logitech) | No |
+| CAMMUS C5 | steering, buttons, axes | constant force (USB-PID) | **Yes** (Windows 11, Chrome) |
+| CAMMUS C12 | steering, buttons, axes | constant force (USB-PID) | No |
+| FFBeast | steering | constant force | **Yes** |
+| Any standard-descriptor HID wheel | steering/axes/buttons (generic) | — | No |
+| Any USB-PID FFB device | — | constant force (auto-detected) | No |
 
-CAMMUS C5 is verified on Windows 11 with Chrome. If force pulls the wrong way, tick **Invert Force** in the demo or set `ffbInvert: true`.
+Only **CAMMUS C5** and **FFBeast** have been verified on hardware. The C5 test
+was on Windows 11 with Chrome. Other rows are implemented or expected but have
+not been hardware-verified. If force pulls the wrong way, tick **Invert Force**
+in the demo or set `ffbInvert: true`.
 
 G29 and Driving Force GT use Logitech's classic force-feedback protocol. G920, G923 Xbox and Fanatec wheels still need separate profiles; see [Logitech, Thrustmaster and Fanatec FFB workarounds](./docs/vendor-ffb-workarounds.md).
 
@@ -193,6 +204,7 @@ npx serve
 
 ## Built with webhid-wheel
 
+- **[Lapster](https://joegaffey.com/lapster/)** — a web-native vehicle simulation engine with a browser racing demo, Rust/Wasm physics, and wgpu rendering ([source](https://github.com/joegaffey/lapster)).
 - **[Magnetar](https://joegaffey.com/magnetar/)** — a one-axis survival game: catch iron orbs on a rotating magnet before they spiral into the black hole ([source](https://github.com/joegaffey/magnetar)).
 - **[Ghost Driver](https://joegaffey.com/ghost-driver/)** — **experimental** pure-browser replay that drives a force-feedback wheel from racing telemetry ([source](https://github.com/joegaffey/ghost-driver)).
 
