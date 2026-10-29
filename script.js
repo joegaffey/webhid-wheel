@@ -19,7 +19,10 @@ const els = {
   wheelHint: document.querySelector('#wheelHint'),
   debug: document.querySelector('#debug'),
   exportOutput: document.querySelector('#exportOutput'),
-  exportText: document.querySelector('#exportText')
+  exportText: document.querySelector('#exportText'),
+  recordInputs: document.querySelector('#recordInputs'),
+  stopRecording: document.querySelector('#stopRecording'),
+  recordStatus: document.querySelector('#recordStatus')
 };
 
 els.panel.manager = manager;
@@ -28,6 +31,10 @@ els.panel.storageKey = STORAGE_KEY;
 let inputQueued = false;
 let selectedSessionId = null;
 let lastReports = new Map();
+let recording = null;
+let recordingRunning = false;
+let recordingEvents = 0;
+let recordingTimer = null;
 
 function escapeHtml(value) {
   return String(value == null ? '' : value).replace(/[&<>"']/g, ch => ({
@@ -251,6 +258,90 @@ function serializeCollections(device) {
   }));
 }
 
+function recordInput(state) {
+  const id = state && state.sessionId;
+  if (!recordingRunning || !id) return;
+  const entry = manager.sessions.get(id);
+  if (!entry) return;
+  const inputState = entry.driver === 'wheel'
+    ? (entry.session.deviceState || entry.session.state)
+    : entry.session.state;
+  const reportId = inputState && inputState.reportId;
+  const reports = inputState && inputState.reports;
+  const bytes = reports && reportId !== null && reportId !== undefined ? reports[reportId] : null;
+  if (!Array.isArray(bytes)) return;
+  const device = recording.devices[id] || (recording.devices[id] = {
+    name: entry.name,
+    driver: entry.driver,
+    vendorId: entry.device ? entry.device.vendorId : null,
+    productId: entry.device ? entry.device.productId : null,
+    productName: entry.device ? entry.device.productName : null,
+    signature: entry.hardware ? entry.hardware.signature : null,
+    reports: {}
+  });
+  const key = String(reportId);
+  const report = device.reports[key] || (device.reports[key] = {
+    reportId,
+    bytes: bytes.length,
+    events: 0,
+    min: new Array(bytes.length).fill(255),
+    max: new Array(bytes.length).fill(0),
+    last: []
+  });
+  report.events++;
+  recordingEvents++;
+  for (let i = 0; i < bytes.length; i += 1) {
+    const value = bytes[i];
+    if (value < report.min[i]) report.min[i] = value;
+    if (value > report.max[i]) report.max[i] = value;
+    report.last[i] = value;
+  }
+}
+
+function updateRecordingStatus(done = false) {
+  if (!els.recordStatus) return;
+  if (!recording) {
+    els.recordStatus.textContent = '';
+    return;
+  }
+  const devices = Object.keys(recording.devices).length;
+  const deviceLabel = devices === 1 ? 'device' : 'devices';
+  const eventLabel = recordingEvents === 1 ? 'event' : 'events';
+  els.recordStatus.textContent = done
+    ? `Recorded ${recordingEvents} ${eventLabel} from ${devices} ${deviceLabel}.`
+    : `Recording… ${recordingEvents} ${eventLabel} from ${devices} ${deviceLabel}.`;
+}
+
+function startRecording() {
+  if (recordingRunning) return;
+  recording = {
+    startedAt: new Date().toISOString(),
+    stoppedAt: null,
+    devices: {}
+  };
+  recordingRunning = true;
+  recordingEvents = 0;
+  els.recordInputs.disabled = true;
+  els.stopRecording.classList.remove('hidden');
+  manager.on('input', recordInput);
+  recordingTimer = setInterval(() => updateRecordingStatus(), 250);
+  updateRecordingStatus();
+}
+
+function stopRecording() {
+  if (!recordingRunning) return;
+  recordingRunning = false;
+  manager.off('input', recordInput);
+  if (recordingTimer) {
+    clearInterval(recordingTimer);
+    recordingTimer = null;
+  }
+  if (recording) recording.stoppedAt = new Date().toISOString();
+  els.recordInputs.disabled = false;
+  els.stopRecording.classList.add('hidden');
+  updateRecordingStatus(true);
+}
+
 function buildExport() {
   const store = loadProfileStore();
   return {
@@ -276,7 +367,13 @@ function buildExport() {
         reports: reportMap(entry)
       })),
     profiles: store,
-    mapping: manager.getMapping()
+    mapping: manager.getMapping(),
+    recording: recording ? {
+      startedAt: recording.startedAt,
+      stoppedAt: recording.stoppedAt,
+      events: recordingEvents,
+      devices: recording.devices
+    } : null
   };
 }
 
@@ -304,6 +401,8 @@ function downloadExport() {
 
 els.panel.addEventListener('webhid-copy', copyExport);
 els.panel.addEventListener('webhid-export', downloadExport);
+els.recordInputs.addEventListener('click', startRecording);
+els.stopRecording.addEventListener('click', stopRecording);
 els.panel.addEventListener('webhid-select', (event) => {
   selectedSessionId = event.detail && event.detail.session ? event.detail.session.id : null;
   updateDebug();

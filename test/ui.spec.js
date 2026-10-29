@@ -414,6 +414,124 @@ test('device diagnostics are opt-in for embedded pickers', async ({ page }) => {
   expect(result.panelDiagnostics).toBe(true);
 });
 
+test('device rows show which device produced input', async ({ page }) => {
+  await page.goto('/');
+  const result = await page.evaluate(async () => {
+    const manager = window.__webhidDemo.manager;
+    const usage = (page, id) => (page << 16) | id;
+    const item = (usages, reportSize, reportCount = 1) => ({ usages, reportSize, reportCount, logicalMinimum: 0, logicalMaximum: (1 << reportSize) - 1 });
+    const fake = (name, descriptor, vendorId, productId) => ({
+      collections: descriptor,
+      productName: name,
+      vendorId,
+      productId,
+      opened: false,
+      oninputreport: null,
+      async open() { this.opened = true; },
+      async close() { this.opened = false; },
+      async sendReport() {}
+    });
+    const first = await manager.connect(fake('Activity One', [{
+      usagePage: 1,
+      usage: 4,
+      inputReports: [{ reportId: 1, items: [item([usage(1, 0x30)], 16)] }],
+      outputReports: [],
+      featureReports: []
+    }], 0x8101, 0x9101));
+    await manager.connect(fake('Activity Two', [{
+      usagePage: 1,
+      usage: 5,
+      inputReports: [{ reportId: 2, items: [item([usage(1, 0x32)], 8)] }],
+      outputReports: [],
+      featureReports: []
+    }], 0x8102, 0x9102));
+    await new Promise(resolve => setTimeout(resolve, 40));
+
+    const picker = document.querySelector('webhid-config-panel').shadowRoot.querySelector('webhid-device-picker');
+    const dotFor = name => [...picker.shadowRoot.querySelectorAll('[data-select]')]
+      .find(row => row.querySelector('.device-name').textContent.includes(name))
+      ?.querySelector('.activity');
+
+    first.device.oninputreport({ data: new DataView(Uint8Array.from([0x00, 0x80]).buffer), reportId: 1, timeStamp: 1 });
+    await new Promise(resolve => setTimeout(resolve, 30));
+    const active = dotFor('Activity One')?.classList.contains('on');
+    const inactive = dotFor('Activity Two')?.classList.contains('on');
+    await new Promise(resolve => setTimeout(resolve, 300));
+    const cleared = dotFor('Activity One')?.classList.contains('on');
+    return { active, inactive, cleared };
+  });
+
+  expect(result.active).toBe(true);
+  expect(result.inactive).toBe(false);
+  expect(result.cleared).toBe(false);
+});
+
+test('diagnostics can record inputs from all connected devices', async ({ page }) => {
+  await page.goto('/');
+  const ids = await page.evaluate(async () => {
+    const manager = window.__webhidDemo.manager;
+    const usage = (page, id) => (page << 16) | id;
+    const item = (usages, reportSize, reportCount = 1) => ({ usages, reportSize, reportCount, logicalMinimum: 0, logicalMaximum: (1 << reportSize) - 1 });
+    const fake = (name, descriptor, vendorId, productId) => ({
+      collections: descriptor,
+      productName: name,
+      vendorId,
+      productId,
+      opened: false,
+      oninputreport: null,
+      async open() { this.opened = true; },
+      async close() { this.opened = false; },
+      async sendReport() {}
+    });
+    const wheel = await manager.connect(fake('Recording Wheel', [{
+      usagePage: 1,
+      usage: 4,
+      inputReports: [{ reportId: 1, items: [item([usage(1, 0x30)], 16), item([usage(9, 1)], 1, 8)] }],
+      outputReports: [],
+      featureReports: []
+    }], 0x8201, 0x9201));
+    const pedals = await manager.connect(fake('Recording Pedals', [{
+      usagePage: 1,
+      usage: 5,
+      inputReports: [{ reportId: 2, items: [item([usage(1, 0x32)], 8)] }],
+      outputReports: [],
+      featureReports: []
+    }], 0x8202, 0x9202));
+    await new Promise(resolve => setTimeout(resolve, 40));
+    return [wheel.id, pedals.id];
+  });
+
+  const picker = page.locator('webhid-config-panel').locator('webhid-device-picker');
+  await picker.locator('summary').click();
+  await page.locator('#recordInputs').click();
+  await page.evaluate(([wheelId, pedalId]) => {
+    const sessions = window.__webhidDemo.manager.sessions;
+    sessions.get(wheelId).device.oninputreport({ data: new DataView(Uint8Array.from([0x00, 0x80, 0x00]).buffer), reportId: 1, timeStamp: 1 });
+    sessions.get(pedalId).device.oninputreport({ data: new DataView(Uint8Array.from([0x7f]).buffer), reportId: 2, timeStamp: 1 });
+  }, ids);
+  await page.waitForTimeout(320);
+  const recordingStatus = await page.locator('#recordStatus').textContent();
+  await page.locator('#stopRecording').click();
+  const stoppedStatus = await page.locator('#recordStatus').textContent();
+  await picker.locator('[data-action="copy"]').click();
+  const json = await page.locator('#exportText').inputValue();
+  const exported = JSON.parse(json);
+  const report = exported.recording.devices[ids[0]].reports['1'];
+  const pedalReport = exported.recording.devices[ids[1]].reports['2'];
+
+  expect(recordingStatus).toContain('Recording');
+  expect(recordingStatus).toContain('2 events');
+  expect(recordingStatus).toContain('2 devices');
+  expect(stoppedStatus).toContain('Recorded 2 events');
+  expect(exported.recording.events).toBe(2);
+  expect(report.events).toBe(1);
+  expect(pedalReport.events).toBe(1);
+  expect(report.last).toEqual([0x00, 0x80, 0x00]);
+  expect(report.min[1]).toBe(0x80);
+  expect(report.max[1]).toBe(0x80);
+  expect(pedalReport.last).toEqual([0x7f]);
+});
+
 test('disconnected devices leave the active UI and raw input falls back', async ({ page }) => {
   await page.goto('/');
   const result = await page.evaluate(async () => {

@@ -12,6 +12,7 @@ export class WebHIDDevicePicker extends WebHIDElement {
     this._profileDevices = [];
     this._removing = new Set();
     this._diagnostics = false;
+    this._activityTimers = new Map();
   }
 
   set selectedId(value) {
@@ -83,7 +84,10 @@ export class WebHIDDevicePicker extends WebHIDElement {
       this._boundManager.off('connect', this._managerHandler);
       this._boundManager.off('disconnect', this._managerHandler);
       this._boundManager.off('error', this._managerHandler);
+      this._boundManager.off('input', this._inputHandler);
     }
+    for (const timer of this._activityTimers.values()) clearTimeout(timer);
+    this._activityTimers.clear();
     this._boundManager = null;
   }
 
@@ -94,13 +98,31 @@ export class WebHIDDevicePicker extends WebHIDElement {
     this._manager.on('connect', this._managerHandler);
     this._manager.on('disconnect', this._managerHandler);
     this._manager.on('error', this._managerHandler);
+    this._inputHandler = (state) => this._flashInput(state && state.sessionId);
+    this._manager.on('input', this._inputHandler);
     this._boundManager = this._manager;
+  }
+
+  _flashInput(id) {
+    if (!id || !this.shadowRoot) return;
+    const dot = [...this.shadowRoot.querySelectorAll('[data-activity]')]
+      .find(item => item.dataset.activity === id);
+    if (!dot) return;
+    dot.classList.add('on');
+    const previous = this._activityTimers.get(id);
+    if (previous) clearTimeout(previous);
+    this._activityTimers.set(id, setTimeout(() => {
+      dot.classList.remove('on');
+      this._activityTimers.delete(id);
+    }, 250));
   }
 
   css() {
     return `
       .head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 6px; }
-      .device-name { color: var(--wheel-fg-color, #e6e8eb); }
+      .device-name { display: flex; align-items: center; gap: 6px; color: var(--wheel-fg-color, #e6e8eb); }
+      .activity { width: 7px; height: 7px; border: 1px solid var(--wheel-border-color, #2a303a); border-radius: 50%; background: #2b3240; flex: 0 0 auto; }
+      .activity.on { background: var(--wheel-success, #34d399); border-color: var(--wheel-success, #34d399); box-shadow: 0 0 6px var(--wheel-success, #34d399); }
       .device-id { color: var(--wheel-muted-color, #8f9bab); font-size: 10px; }
       .caps { display: flex; gap: 4px; flex-wrap: wrap; justify-content: flex-end; align-items: center; }
       .cap { display: inline-flex; align-items: center; justify-content: center; line-height: 1; font-size: 9px; border: 1px solid var(--wheel-border-color, #2a303a); border-radius: 999px; padding: 2px 6px; color: var(--wheel-muted-color, #8f9bab); }
@@ -298,7 +320,7 @@ export class WebHIDDevicePicker extends WebHIDElement {
     return `
       <div class="list-item${entry.id === this._selectedId ? ' selected' : ''}" data-select="${escapeHtml(entry.id)}">
         <div>
-          <div class="device-name">${escapeHtml(entry.name || entry.id)}</div>
+          <div class="device-name"><span class="activity" data-activity="${escapeHtml(entry.id)}" aria-hidden="true"></span>${escapeHtml(entry.name || entry.id)}</div>
           <div class="device-id">${escapeHtml(this._meta(entry.hardware, kind))}</div>
         </div>
         <div class="caps">

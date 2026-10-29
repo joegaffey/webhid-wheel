@@ -195,7 +195,7 @@ G29 and Driving Force GT use Logitech's classic force-feedback protocol. G920, G
 
 The T248 exposes force feedback on a vendor report that WebHID cannot send. On Windows, PadForge can expose a virtual HID-PID wheel and forward its force feedback to the T248. The same bridge pattern works for other native-FFB wheels PadForge can drive; see [PadForge wheel bridge for WebHID](./docs/padforge-wheel-bridge.md).
 
-Got an unsupported wheel? Open the demo, add it, turn full-lock and press every button, then open **Diagnostics** in the device panel and use **Copy diagnostic JSON** or **Download JSON** to attach the capture.
+Got an unsupported wheel? Open the demo, add it, open **Diagnostics** in the device panel, click **Record all inputs**, turn full-lock and press every button, then click **Stop recording** and use **Copy diagnostic JSON** or **Download JSON** to attach the capture.
 
 ## Run locally
 

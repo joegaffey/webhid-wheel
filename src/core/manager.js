@@ -197,7 +197,7 @@ export class WheelManager {
 
     instance.on('input', () => {
       this._recomputeChannels();
-      this.emit('input', this.state);
+      this.emit('input', { ...this.state, sessionId: entry.id });
     });
     instance.on('disconnect', (device) => {
       this._recomputeChannels();

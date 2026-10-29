@@ -89,6 +89,20 @@ test('WheelManager connects a device and exposes sessions without a synthetic wh
   assert.equal(manager.isConnected, false);
 });
 
+test('manager input events identify the session that produced them', async () => {
+  const manager = new WheelManager();
+  const wheel = new FakeDevice('Source Wheel', wheelDescriptor(), 0x1010, 0x2020);
+  const pedals = new FakeDevice('Source Pedals', pedalDescriptor(), 0x3030, 0x4040);
+  const wheelEntry = await manager.connect(wheel);
+  await manager.connect(pedals);
+  let payload = null;
+  manager.on('input', state => { payload = state; });
+
+  wheel.oninputreport(report(1, [0x00, 0x80, 0x00, 0x00, 0x00]));
+  assert.equal(payload.sessionId, wheelEntry.id);
+  assert.ok(payload.sessions[wheelEntry.id]);
+});
+
 test('WheelManager applies steering calibration and selectable FFB settings', async () => {
   const manager = new WheelManager();
   const entry = await manager.connect(new FakeDevice('Cal Wheel', wheelDescriptor()));

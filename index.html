@@ -125,6 +125,11 @@
         <webhid-config-panel id="configPanel" storage-key="webhid-wheel:v3:profiles" tabbed diagnostics>
           <div slot="diagnostics" class="device-extra">
             <h2>Raw input</h2>
+            <div class="toolbar" style="justify-content:flex-start;margin:0 0 10px">
+              <button id="recordInputs" class="button">Record all inputs</button>
+              <button id="stopRecording" class="button hidden">Stop recording</button>
+              <span id="recordStatus" class="hint" role="status" aria-live="polite"></span>
+            </div>
             <div id="debug"><div class="dbg-empty">No data</div></div>
             <div id="exportOutput" class="hidden"><textarea id="exportText" readonly></textarea></div>
           </div>

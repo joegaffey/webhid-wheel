@@ -5,7 +5,7 @@ body:
   - type: markdown
     attributes:
       value: |
-        Thanks for reporting a wheel! In the webhid-wheel page click **Gather diagnostics**, then during the ~12 s capture turn the wheel full-lock left/right and press every button. When it finishes, click **Copy JSON** and paste it below.
+        Thanks for reporting a wheel! In the webhid-wheel page open **Diagnostics** in the device panel, click **Record all inputs**, turn the wheel full-lock left/right and press every button, then click **Stop recording**. Click **Copy diagnostic JSON** and paste it below.
   - type: input
     id: wheel
     attributes:
@@ -65,7 +65,7 @@ body:
     id: diagnostics
     attributes:
       label: Diagnostics JSON
-      description: Paste the JSON produced by "Gather diagnostics" (Copy JSON).
+      description: Paste the JSON produced by "Record all inputs" (Copy diagnostic JSON).
       render: json
     validations:
       required: true

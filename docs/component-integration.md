@@ -1,6 +1,6 @@
 # Component integration guide
 
-Status: current for `webhid-wheel` 0.4.39 (2026-10-29).
+Status: current for `webhid-wheel` 0.4.40 (2026-10-29).
 
 This is the canonical integration contract for `<webhid-config-panel>` and the
 core package. It is written for application developers and for coding agents
@@ -109,7 +109,8 @@ Rules for this snippet:
 Device rows show `VID:PID · wheel|HID device · signature` metadata. The `wheel`
 label is reserved for a known wheel profile or a detected FFB wheel; generic
 input devices remain `HID device`. Capability pills report `steering`, `FFB`,
-and detected axis/button/hat counts such as `2 axes` or `12 buttons`.
+and detected axis/button/hat counts such as `2 axes` or `12 buttons`. A small
+activity dot on each device row flashes when that device produces input.
 
 The panel owns the default setup-profile store when `profiles` is not supplied.
 Its default key is `webhid-wheel:v3:profiles`; always use an app-namespaced key
@@ -338,6 +339,7 @@ import { WheelManager } from 'webhid-wheel';
 const manager = new WheelManager();
 manager.on('input', state => {
   // state.sessions, state.channels, state.steering, state.timestamp
+  // state.sessionId identifies the device that produced this input
 });
 manager.on('connect', ({ session, device }) => {});
 manager.on('disconnect', ({ session, device }) => {});
