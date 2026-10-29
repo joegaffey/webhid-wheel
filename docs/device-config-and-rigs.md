@@ -1,7 +1,7 @@
 # HID device mapping and capture
 
 Status: mapping, setup profiles and config elements implemented in
-`webhid-wheel` 0.4.34 (2026-10-29). See the
+`webhid-wheel` 0.4.35 (2026-10-29). See the
 [component integration guide](./component-integration.md) for the consumer
 contract.
 

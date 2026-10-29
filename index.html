@@ -26,6 +26,10 @@
       * { box-sizing: border-box; }
       .hidden { display: none !important; }
       html, body { margin: 0; padding: 0; }
+      html { overflow-y: scroll; }
+      webhid-config-panel:not(:defined) { display: block; }
+      webhid-config-panel:not(:defined) > * { display: none; }
+      #app:not(:has(webhid-config-panel:defined)) footer { visibility: hidden; }
       body {
         background: radial-gradient(1200px 600px at 50% -10%, #16203a 0%, var(--bg) 60%) fixed;
         color: var(--text);

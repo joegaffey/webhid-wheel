@@ -1,6 +1,6 @@
 # Component integration guide
 
-Status: current for `webhid-wheel` 0.4.34 (2026-10-29).
+Status: current for `webhid-wheel` 0.4.35 (2026-10-29).
 
 This is the canonical integration contract for `<webhid-config-panel>` and the
 core package. It is written for application developers and for coding agents
@@ -110,7 +110,29 @@ The panel owns the default setup-profile store when `profiles` is not supplied.
 Its default key is `webhid-wheel:v3:profiles`; always use an app-namespaced key
 in production.
 
-## 5. Panel properties and attributes
+## 5. Loading and layout stability
+
+Before the UI entry upgrades `<webhid-config-panel>`, its light DOM slot content
+is ordinary page content and can paint unstyled. Hide it and keep the footer or
+below-the-fold content from jumping:
+
+```css
+webhid-config-panel:not(:defined) { display: block; }
+webhid-config-panel:not(:defined) > * { display: none; }
+```
+
+For a page with a footer, also reserve the panel area or hide the footer until
+the element is defined, for example:
+
+```css
+#app:not(:has(webhid-config-panel:defined)) footer { visibility: hidden; }
+```
+
+The demo also keeps the vertical scrollbar stable with
+`html { overflow-y: scroll; }`. Add a loading skeleton if the module load can be
+slow; do not let the un-upgraded slot content dictate the first layout.
+
+## 6. Panel properties and attributes
 
 | Property | Attribute | Type | Notes |
 | --- | --- | --- | --- |
@@ -125,7 +147,7 @@ The child elements (`webhid-device-picker`, `webhid-steering-config`,
 `webhid-axis-mapper`, `webhid-button-mapper`) also accept `manager` and
 `profiles` properties. They are usually used through the panel, not directly.
 
-## 6. Slots
+## 7. Slots
 
 | Slot | Placement | Typical use |
 | --- | --- | --- |
@@ -147,7 +169,7 @@ If a slot is absent, the panel renders only library controls.
 </webhid-config-panel>
 ```
 
-## 7. Events
+## 8. Events
 
 All component events bubble and are composed, so they cross the shadow boundary.
 Treat `detail` as plain data except where an `Error` is explicitly noted.
@@ -197,7 +219,7 @@ panel.addEventListener('webhid-profile-change', event => {
 });
 ```
 
-## 8. Profiles and storage
+## 9. Profiles and storage
 
 The panel uses `SetupProfileManager` for portable setup profiles. The profile
 schema is multi-device v2:
@@ -261,7 +283,7 @@ if (match.status === 'matched') {
 `requestDevice()`. A user gesture is still required to authorize a device that
 is not in `getDevices()`.
 
-## 9. Theming
+## 10. Theming
 
 Every element uses Shadow DOM. There are no `part` hooks yet; theme with CSS
 custom properties on the host or an ancestor:
@@ -289,7 +311,7 @@ webhid-config-panel {
 Do not target shadow internals from app CSS. Use the documented variables and
 slots.
 
-## 10. Core-only integration
+## 11. Core-only integration
 
 If the app does not use the custom elements, use `WheelManager` directly. The
 core entry is safe to import in Node and does not touch `document`,
@@ -316,7 +338,7 @@ connectButton.addEventListener('click', async () => {
 Do not construct `WebHIDWheel` at server-render time; its constructor checks
 `navigator.hid`. `WheelManager` construction is the DOM-free path.
 
-## 11. Framework integration
+## 12. Framework integration
 
 Custom elements use DOM properties, not framework props.
 
@@ -332,7 +354,7 @@ Custom elements use DOM properties, not framework props.
 - Do not server-render the custom elements; render the host element only on the
   client.
 
-## 12. Agent integration contract
+## 13. Agent integration contract
 
 Use this checklist when an agent is wiring the package into another app:
 
@@ -359,7 +381,7 @@ Use this checklist when an agent is wiring the package into another app:
 12. If the API or component behavior changes, update this guide, the README,
     the Lapster plan status and the type declarations together.
 
-## 13. Troubleshooting
+## 14. Troubleshooting
 
 | Symptom | Check |
 | --- | --- |
@@ -372,7 +394,7 @@ Use this checklist when an agent is wiring the package into another app:
 | Dev preview looks stale | Hard-refresh; check `/version.txt` against the deployed commit. |
 | No FFB | Confirm the selected force-output device reports FFB capability; try Invert force and a low gain; see the vendor workaround docs. |
 
-## 14. Verification
+## 15. Verification
 
 From the package checkout:
 
