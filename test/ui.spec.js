@@ -1287,7 +1287,8 @@ test('a profile device that is offline remains listed after reload', async ({ pa
       list: picker.shadowRoot.querySelector('[data-role="list"]').textContent,
       pills: [...picker.shadowRoot.querySelectorAll('.cap')].map(pill => pill.textContent),
       connected: window.__webhidDemo.manager.isConnected,
-      hasConnect: !!picker.shadowRoot.querySelector('[data-action="connect-profile"]')
+      hasConnect: !!picker.shadowRoot.querySelector('[data-action="connect-profile"]'),
+      connectText: picker.shadowRoot.querySelector('[data-action="connect-profile"]')?.textContent
     };
   });
   expect(result.list).toContain('Offline Profile Wheel');
@@ -1295,6 +1296,7 @@ test('a profile device that is offline remains listed after reload', async ({ pa
   expect(result.pills).toContain('offline');
   expect(result.connected).toBe(false);
   expect(result.hasConnect).toBe(true);
+  expect(result.connectText).toBe('Connect');
 });
 
 test('removing a device does not change the stored profile until Save', async ({ page }) => {

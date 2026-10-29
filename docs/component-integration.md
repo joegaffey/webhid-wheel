@@ -1,6 +1,6 @@
 # Component integration guide
 
-Status: current for `webhid-wheel` 0.4.38 (2026-10-29).
+Status: current for `webhid-wheel` 0.4.39 (2026-10-29).
 
 This is the canonical integration contract for `<webhid-config-panel>` and the
 core package. It is written for application developers and for coding agents
@@ -401,7 +401,7 @@ Use this checklist when an agent is wiring the package into another app:
 | Panel is unstyled or `customElements.get('webhid-config-panel')` is undefined | Import `webhid-wheel/ui` in the client bundle; confirm the UI entry was not tree-shaken. |
 | Add device does nothing | WebHID unavailable, insecure origin, permission dialog cancelled, or connect not called from a user gesture. |
 | Devices list stays empty on reload | `getDevices()` returns only authorized devices; click Add to authorize again. |
-| Profile devices show as offline | The hardware is not currently authorized. Use Add on the offline row or reconnect with `getDevices()`. |
+| Profile devices show as offline | The hardware is not currently authorized. Use Connect on the offline row or reconnect with `getDevices()`. |
 | Imported profile loses mappings | Mappings for unavailable devices are inactive; reconnect the matching hardware and reapply the profile. |
 | Live mapping values stay at `0.00` | Select a connected device for that row and press Set, then move/press the input. |
 | Dev preview looks stale | Hard-refresh; check `/version.txt` against the deployed commit. |

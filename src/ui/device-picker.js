@@ -318,7 +318,7 @@ export class WebHIDDevicePicker extends WebHIDElement {
         </div>
         <div class="caps">
           <span class="cap off">offline</span>
-          <button class="device-action" type="button" data-action="connect-profile" data-alias="${escapeHtml(device.alias)}">Add</button>
+          <button class="device-action" type="button" data-action="connect-profile" data-alias="${escapeHtml(device.alias)}">Connect</button>
           <button class="remove" type="button" data-action="remove-profile" data-alias="${escapeHtml(device.alias)}">Remove</button>
         </div>
       </div>
