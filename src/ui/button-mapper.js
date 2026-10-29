@@ -99,7 +99,7 @@ export class WebHIDButtonMapper extends WebHIDElement {
       .mapping.direction-hidden select[data-field="direction"] { display: none; }
       .live { font-variant-numeric: tabular-nums; color: var(--wheel-muted-color, #8f9bab); min-width: 38px; text-align: right; }
       .mapping.armed { outline: 1px solid var(--wheel-accent, #38bdf8); outline-offset: 2px; }
-      .mapping .actions { justify-content: flex-end; }
+      .mapping .actions { align-items: center; justify-content: flex-end; }
       @media (max-width: 560px) {
         .mapping, .mapping.direction-hidden {
           grid-template-columns: minmax(0, 1fr) 70px 70px;

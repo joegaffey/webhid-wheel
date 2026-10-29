@@ -86,7 +86,7 @@ export class WebHIDAxisMapper extends WebHIDElement {
       .mapping input[type="number"] { width: 100%; }
       .live { font-variant-numeric: tabular-nums; color: var(--wheel-muted-color, #8f9bab); min-width: 40px; text-align: right; }
       .mapping.armed { outline: 1px solid var(--wheel-accent, #38bdf8); outline-offset: 2px; }
-      .mapping .actions { justify-content: flex-end; }
+      .mapping .actions { align-items: center; justify-content: flex-end; }
       .mapping .check span { display: none; }
       @media (max-width: 560px) {
         .mapping {

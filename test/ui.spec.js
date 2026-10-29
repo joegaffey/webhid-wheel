@@ -1553,6 +1553,32 @@ test('FFB test buttons match the component button style', async ({ page }) => {
   expect(styles.ffb).toEqual(styles.save);
 });
 
+test('mapping live values are centered inside desktop action rows', async ({ page }) => {
+  await page.goto('/');
+  const panel = page.locator('webhid-config-panel');
+  const readRow = (mapperTag, selector) => panel.evaluate((element, [tag, rowSelector]) => {
+    const mapper = element.shadowRoot.querySelector(tag);
+    const row = mapper.shadowRoot.querySelector(rowSelector);
+    const actions = row.querySelector('.actions');
+    const live = row.querySelector('.live');
+    const style = getComputedStyle(live);
+    return {
+      alignItems: getComputedStyle(actions).alignItems,
+      liveHeight: live.getBoundingClientRect().height,
+      lineHeight: parseFloat(style.lineHeight)
+    };
+  }, [mapperTag, selector]);
+
+  const axis = await readRow('webhid-axis-mapper', '[data-channel="throttle"]');
+  expect(axis.alignItems).toBe('center');
+  expect(axis.liveHeight).toBeLessThanOrEqual(axis.lineHeight + 1);
+
+  await panel.getByRole('tab', { name: 'Buttons' }).click();
+  const button = await readRow('webhid-button-mapper', '[data-channel="reverse"]');
+  expect(button.alignItems).toBe('center');
+  expect(button.liveHeight).toBeLessThanOrEqual(button.lineHeight + 1);
+});
+
 test('mapping rows align labels and live values on mobile', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto('/');
