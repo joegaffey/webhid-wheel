@@ -397,11 +397,13 @@ export class WheelManager {
 
     for (const [channel, entry] of Object.entries(this._mapping.axes || {})) {
       const state = this._stateFor(entry);
-      channels[channel] = state ? (mapChannels(state, { [channel]: entry })[channel] || 0) : 0;
+      const value = state ? (mapChannels(state, { [channel]: entry })[channel] || 0) : 0;
+      channels[channel] = Math.max(channels[channel] || 0, value);
     }
     for (const [channel, entry] of Object.entries(this._mapping.buttons || {})) {
       const state = this._stateFor(entry);
-      channels[channel] = state ? (mapChannels(state, { [channel]: entry })[channel] || 0) : 0;
+      const value = state ? (mapChannels(state, { [channel]: entry })[channel] || 0) : 0;
+      channels[channel] = Math.max(channels[channel] || 0, value);
     }
     this._channels = channels;
   }

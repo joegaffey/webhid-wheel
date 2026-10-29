@@ -235,6 +235,32 @@ test('a joystick-like receiver without wheel naming is not classified as a wheel
   assert.equal(manager.getCalibration().device, null);
 });
 
+test('an analog handbrake is not overwritten by a button handbrake mapping', async () => {
+  const manager = new WheelManager();
+  const device = new FakeDevice('Arduino', [{
+    usagePage: 0x01,
+    usage: 0x05,
+    inputReports: [{
+      reportId: 1,
+      items: [
+        item([usage(0x09, 0x01)], 1, 8, 0, 1),
+        item([usage(0x01, 0x30)], 8, 1, 0, 255),
+        item([usage(0x01, 0x31)], 8, 1, 0, 255)
+      ]
+    }],
+    outputReports: [],
+    featureReports: []
+  }], 0x045e, 0x028e);
+  const entry = await manager.connect(device);
+  manager.setMapping({
+    axes: { handbrake: { device: entry.id, source: 'axis', index: 1 } },
+    buttons: { handbrake: { device: entry.id, source: 'button', index: 0 } }
+  });
+
+  device.oninputreport(report(1, [0x00, 0x00, 0x80]));
+  assert.ok(Math.abs(manager.channels.handbrake - 128 / 255) < 1e-9);
+});
+
 test('WheelManager reuses a disconnected session by hardware signature', async () => {
   const manager = new WheelManager();
   const first = new FakeDevice('Reusable Wheel', wheelDescriptor(), 0x5151, 0x6161);

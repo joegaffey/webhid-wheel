@@ -1,7 +1,7 @@
 # HID device mapping and capture
 
 Status: mapping, setup profiles and config elements implemented in
-`webhid-wheel` 0.4.41 (2026-10-29). See the
+`webhid-wheel` 0.4.42 (2026-10-29). See the
 [component integration guide](./component-integration.md) for the consumer
 contract.
 
@@ -111,6 +111,10 @@ Button 1 .. Button N
 
 Numbered `Button N` entries are available for unmapped physical buttons.
 Hat/POV directions map to the same fixed actions.
+
+The `handbrake` channel may be mapped as an analog axis, a button, or both.
+When both mappings exist, the channel value is the maximum of the two, so a
+resting button mapping does not hide analog axis movement.
 
 Mapping entries are plain data:
 
