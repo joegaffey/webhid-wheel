@@ -458,12 +458,89 @@ test('device rows show which device produced input', async ({ page }) => {
     const inactive = dotFor('Activity Two')?.classList.contains('on');
     await new Promise(resolve => setTimeout(resolve, 300));
     const cleared = dotFor('Activity One')?.classList.contains('on');
-    return { active, inactive, cleared };
+    first.device.oninputreport({ data: new DataView(Uint8Array.from([0x00, 0x80]).buffer), reportId: 1, timeStamp: 2 });
+    await new Promise(resolve => setTimeout(resolve, 30));
+    const unchanged = dotFor('Activity One')?.classList.contains('on');
+    first.device.oninputreport({ data: new DataView(Uint8Array.from([0x00, 0xC0]).buffer), reportId: 1, timeStamp: 3 });
+    await new Promise(resolve => setTimeout(resolve, 30));
+    const changed = dotFor('Activity One')?.classList.contains('on');
+    return { active, inactive, cleared, unchanged, changed };
   });
 
   expect(result.active).toBe(true);
   expect(result.inactive).toBe(false);
   expect(result.cleared).toBe(false);
+  expect(result.unchanged).toBe(false);
+  expect(result.changed).toBe(true);
+});
+
+test('duplicate device names are distinguishable and handbrake mapping updates', async ({ page }) => {
+  await page.goto('/');
+  const result = await page.evaluate(async () => {
+    const manager = window.__webhidDemo.manager;
+    const usage = (page, id) => (page << 16) | id;
+    const item = (usages, reportSize, reportCount = 1) => ({ usages, reportSize, reportCount, logicalMinimum: 0, logicalMaximum: (1 << reportSize) - 1 });
+    const fake = (vendorId, productId) => ({
+      collections: [{
+        usagePage: 1,
+        usage: 5,
+        inputReports: [{ reportId: 1, items: [
+          item([usage(1, 0x30)], 8),
+          item([usage(1, 0x31)], 8),
+          item([usage(1, 0x32)], 8),
+          item([usage(1, 0x33)], 8)
+        ] }],
+        outputReports: [],
+        featureReports: []
+      }],
+      productName: 'Arduino',
+      vendorId,
+      productId,
+      opened: false,
+      oninputreport: null,
+      async open() { this.opened = true; },
+      async close() { this.opened = false; },
+      async sendReport() {}
+    });
+    const first = await manager.connect(fake(0x8301, 0x9301));
+    const second = await manager.connect(fake(0x8302, 0x9302));
+    await new Promise(resolve => setTimeout(resolve, 50));
+
+    const panel = document.querySelector('webhid-config-panel');
+    const picker = panel.shadowRoot.querySelector('webhid-device-picker');
+    const rows = [...picker.shadowRoot.querySelectorAll('[data-select]')];
+    const meta = rows.map(row => row.querySelector('.device-id').textContent);
+    const mapper = panel.shadowRoot.querySelector('webhid-axis-mapper');
+    const row = mapper.shadowRoot.querySelector('[data-channel="handbrake"]');
+    const select = row.querySelector('[data-field="device"]');
+    const labels = [...select.options].map(option => option.textContent);
+    select.value = second.id;
+    select.dispatchEvent(new Event('change', { bubbles: true }));
+    row.querySelector('[data-action="set"]').click();
+    second.device.oninputreport({ data: new DataView(Uint8Array.from([0, 0, 0, 255]).buffer), reportId: 1, timeStamp: 1 });
+    await new Promise(resolve => setTimeout(resolve, 50));
+    return {
+      firstId: first.id,
+      secondId: second.id,
+      meta,
+      labels,
+      mapping: manager.getMapping().axes.handbrake,
+      live: row.querySelector('[data-live]').textContent
+    };
+  });
+
+  expect(result.meta).toHaveLength(2);
+  expect(result.meta[0]).toContain(`· ${result.firstId}`);
+  expect(result.meta[1]).toContain(`· ${result.secondId}`);
+  expect(result.labels).toContain(`Arduino · ${result.firstId}`);
+  expect(result.labels).toContain(`Arduino · ${result.secondId}`);
+  expect(result.mapping).toEqual({
+    device: result.secondId,
+    source: 'axis',
+    index: 3,
+    invert: false
+  });
+  expect(result.live).toBe('1.00');
 });
 
 test('diagnostics can record inputs from all connected devices', async ({ page }) => {
@@ -854,10 +931,9 @@ test('device pills show only relevant capabilities and no connection state pill'
   expect(wheel.pills).toEqual(['steering', '1 axis', '8 buttons']);
   expect(pedals.pills).toEqual(['1 axis']);
   expect(receiver.pills).toEqual(['1 axis', '8 buttons']);
-  expect(wheel.meta).toMatch(/^0x8001:0x9001 · HID device · #[0-9a-f]{6}$/);
-  expect(pedals.meta).toMatch(/^0x8002:0x9002 · HID device · #[0-9a-f]{6}$/);
-  expect(receiver.meta).toMatch(/^0x045e:0x028e · HID device · #[0-9a-f]{6}$/i);
-  expect(wheel.meta).not.toContain('device-');
+  expect(wheel.meta).toMatch(/^0x8001:0x9001 · HID device · #[0-9a-f]{6} · device-\d+$/);
+  expect(pedals.meta).toMatch(/^0x8002:0x9002 · HID device · #[0-9a-f]{6} · device-\d+$/);
+  expect(receiver.meta).toMatch(/^0x045e:0x028e · HID device · #[0-9a-f]{6} · device-\d+$/i);
   expect(result.flatMap(row => row.pills)).not.toContain('on');
   expect(result.flatMap(row => row.pills)).not.toContain('off');
 });

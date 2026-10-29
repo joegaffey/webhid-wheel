@@ -1,7 +1,7 @@
 # HID device mapping and capture
 
 Status: mapping, setup profiles and config elements implemented in
-`webhid-wheel` 0.4.40 (2026-10-29). See the
+`webhid-wheel` 0.4.41 (2026-10-29). See the
 [component integration guide](./component-integration.md) for the consumer
 contract.
 
@@ -157,7 +157,9 @@ The demo uses `<webhid-config-panel>` and its sub-elements:
 - device list with capability badges, per-device selection and remove
 - offline profile devices remain listed as offline; Remove affects the working list and Save updates the profile
 - raw input under the selected device, following its selection
-- an activity dot on each device row, flashing when that device produces input
+- an activity dot on each device row, flashing when that device's input changes
+- session IDs in device metadata and duplicate-name mapping options, so identical
+  controllers can be told apart
 - Record all inputs in Diagnostics, collecting report min/max/event counts across
   every connected device for the export
 - steering source and force-output selection in the Wheel tab

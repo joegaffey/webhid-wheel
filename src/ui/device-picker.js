@@ -13,6 +13,7 @@ export class WebHIDDevicePicker extends WebHIDElement {
     this._removing = new Set();
     this._diagnostics = false;
     this._activityTimers = new Map();
+    this._lastInput = new Map();
   }
 
   set selectedId(value) {
@@ -88,6 +89,7 @@ export class WebHIDDevicePicker extends WebHIDElement {
     }
     for (const timer of this._activityTimers.values()) clearTimeout(timer);
     this._activityTimers.clear();
+    this._lastInput.clear();
     this._boundManager = null;
   }
 
@@ -98,13 +100,27 @@ export class WebHIDDevicePicker extends WebHIDElement {
     this._manager.on('connect', this._managerHandler);
     this._manager.on('disconnect', this._managerHandler);
     this._manager.on('error', this._managerHandler);
-    this._inputHandler = (state) => this._flashInput(state && state.sessionId);
+    this._inputHandler = (state) => this._flashInput(state);
     this._manager.on('input', this._inputHandler);
     this._boundManager = this._manager;
   }
 
-  _flashInput(id) {
+  _flashInput(state) {
+    const id = state && state.sessionId;
     if (!id || !this.shadowRoot) return;
+    const session = state.sessions && state.sessions[id];
+    const input = session && session.state;
+    if (!input) return;
+    const axis = value => Number.isFinite(Number(value)) ? Math.round(Number(value) * 50) : value;
+    const snapshot = JSON.stringify({
+      steering: axis(input.steering),
+      rotation: Number.isFinite(Number(input.rotation)) ? Math.round(Number(input.rotation)) : input.rotation,
+      axes: (input.axes || []).map(axis),
+      buttons: input.buttons || [],
+      hats: input.hats || []
+    });
+    if (this._lastInput.get(id) === snapshot) return;
+    this._lastInput.set(id, snapshot);
     const dot = [...this.shadowRoot.querySelectorAll('[data-activity]')]
       .find(item => item.dataset.activity === id);
     if (!dot) return;
@@ -299,12 +315,13 @@ export class WebHIDDevicePicker extends WebHIDElement {
     return this._connectedSessions().find(entry => hardwareMatches(hardware, entry.hardware));
   }
 
-  _meta(hardware, kind = 'HID device') {
+  _meta(hardware, kind = 'HID device', id = null) {
     const signature = hardware && hardware.signature ? `#${hardware.signature.slice(0, 6)}` : null;
     return [
       `${hex(hardware && hardware.vendorId)}:${hex(hardware && hardware.productId)}`,
       kind,
-      signature
+      signature,
+      id
     ].filter(Boolean).join(' · ');
   }
 
@@ -321,7 +338,7 @@ export class WebHIDDevicePicker extends WebHIDElement {
       <div class="list-item${entry.id === this._selectedId ? ' selected' : ''}" data-select="${escapeHtml(entry.id)}">
         <div>
           <div class="device-name"><span class="activity" data-activity="${escapeHtml(entry.id)}" aria-hidden="true"></span>${escapeHtml(entry.name || entry.id)}</div>
-          <div class="device-id">${escapeHtml(this._meta(entry.hardware, kind))}</div>
+          <div class="device-id">${escapeHtml(this._meta(entry.hardware, kind, entry.id))}</div>
         </div>
         <div class="caps">
           ${pills.map(label => `<span class="cap">${label}</span>`).join('')}

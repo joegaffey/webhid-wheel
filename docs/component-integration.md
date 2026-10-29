@@ -1,6 +1,6 @@
 # Component integration guide
 
-Status: current for `webhid-wheel` 0.4.40 (2026-10-29).
+Status: current for `webhid-wheel` 0.4.41 (2026-10-29).
 
 This is the canonical integration contract for `<webhid-config-panel>` and the
 core package. It is written for application developers and for coding agents
@@ -106,11 +106,13 @@ Rules for this snippet:
 - The panel does not disconnect devices when it is removed from the DOM. Call
   `manager.disconnect(id)` when the app tears down the rig.
 
-Device rows show `VID:PID · wheel|HID device · signature` metadata. The `wheel`
-label is reserved for a known wheel profile or a detected FFB wheel; generic
-input devices remain `HID device`. Capability pills report `steering`, `FFB`,
-and detected axis/button/hat counts such as `2 axes` or `12 buttons`. A small
-activity dot on each device row flashes when that device produces input.
+Device rows show `VID:PID · wheel|HID device · signature · session-id`
+metadata, so identical devices remain distinguishable. The `wheel` label is
+reserved for a known wheel profile or a detected FFB wheel; generic input devices
+remain `HID device`. Capability pills report `steering`, `FFB`, and detected
+axis/button/hat counts such as `2 axes` or `12 buttons`. A small activity dot on
+each device row flashes when that device's input changes. Mapping device menus
+append the session ID to duplicate names.
 
 The panel owns the default setup-profile store when `profiles` is not supplied.
 Its default key is `webhid-wheel:v3:profiles`; always use an app-namespaced key

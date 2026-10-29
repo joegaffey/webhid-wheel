@@ -127,7 +127,9 @@ export class WebHIDAxisMapper extends WebHIDElement {
       options.push(`<option value="${escapeHtml(current)}" selected>Missing device (${escapeHtml(current)})</option>`);
     }
     for (const device of devices) {
-      const label = device.name || device.id;
+      const name = device.name || device.id;
+      const duplicate = devices.some(other => other.id !== device.id && (other.name || other.id) === name);
+      const label = duplicate ? `${name} · ${device.id}` : name;
       options.push(`<option value="${escapeHtml(device.id)}"${device.id === current ? ' selected' : ''}>${escapeHtml(label)}</option>`);
     }
     return options.join('');
