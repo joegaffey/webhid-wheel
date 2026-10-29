@@ -723,9 +723,9 @@ test('device pills show only relevant capabilities and no connection state pill'
 
   const wheel = result.find(row => row.name === 'Pill Wheel');
   const pedals = result.find(row => row.name === 'Pill Pedals');
-  expect(wheel.pills).toEqual(['steering', 'input']);
-  expect(pedals.pills).toEqual(['input']);
-  expect(wheel.meta).toMatch(/^0x8001:0x9001 · wheel · #[0-9a-f]{6}$/);
+  expect(wheel.pills).toEqual(['steering', '1 axis', '8 buttons']);
+  expect(pedals.pills).toEqual(['1 axis']);
+  expect(wheel.meta).toMatch(/^0x8001:0x9001 · HID device · #[0-9a-f]{6}$/);
   expect(pedals.meta).toMatch(/^0x8002:0x9002 · HID device · #[0-9a-f]{6}$/);
   expect(wheel.meta).not.toContain('device-');
   expect(result.flatMap(row => row.pills)).not.toContain('on');

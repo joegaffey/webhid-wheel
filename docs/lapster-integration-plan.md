@@ -1,6 +1,6 @@
 # Package, setup profiles and Lapster integration plan
 
-Status: implemented through 0.4.36 on `feature/core-ui-package` (2026-10-29).
+Status: implemented through 0.4.37 on `feature/core-ui-package` (2026-10-29).
 The dev preview is deployed; hardware acceptance is still pending. Supersedes
 the downloaded `webhid_integration_task_spec.md`. This document is the working
 contract for splitting `webhid-wheel` into a core package and a UI package,
@@ -132,7 +132,7 @@ Keep `webhid-wheel.d.ts` as the matching compatibility type shim, re-exporting
 ```json
 {
   "name": "webhid-wheel",
-  "version": "0.4.36",
+  "version": "0.4.37",
   "type": "module",
   "main": "./dist/core/index.js",
   "module": "./dist/core/index.js",
@@ -181,7 +181,7 @@ Requirements:
 - `prepare` must build `dist` so GitHub installs and `file:` installs work.
 - `npm pack` must be tested; a published tarball without `dist` is a release
   blocker.
-- The package version becomes `0.4.36` because the package gains subpath exports
+- The package version becomes `0.4.37` because the package gains subpath exports
   while retaining the old API.
 - Add `@playwright/test` as a devDependency for the browser component tests.
   Runtime dependencies stay at zero.
@@ -520,7 +520,7 @@ dependency must live in `web/package.json`.
 For CI and release:
 
 - Pin a commit or tag, for example
-  `github:joegaffey/webhid-wheel#<sha>` or a published `0.4.36`.
+  `github:joegaffey/webhid-wheel#<sha>` or a published `0.4.37`.
 - Record the revision in Lapster's `THIRD_PARTY_NOTICES.md`.
 - Ensure `dist` is built before Lapster's esbuild run. Prefer the package
   `prepare` script; if the CI install mode skips it, run `npm --prefix
@@ -684,7 +684,7 @@ the default.
 - Best-effort C12 check if hardware is available; it is implemented but not
   hardware-verified.
 - Verify Chromium, WebHID-unavailable fallback, and Lapster's mobile layout.
-- Tag `webhid-wheel@0.4.36`, pin the revision in Lapster, update docs.
+- Tag `webhid-wheel@0.4.37`, pin the revision in Lapster, update docs.
 
 Exit criteria: hardware checklist passes; release notes list the new subpath,
 setup profiles and compatibility guarantees.
@@ -721,7 +721,7 @@ setup profiles and compatibility guarantees.
 
 | Risk | Mitigation |
 | --- | --- |
-| Breaking existing consumers | Keep all old exports, root shim, and regression tests; release as 0.4.36 |
+| Breaking existing consumers | Keep all old exports, root shim, and regression tests; release as 0.4.37 |
 | `dist` missing from installs | `prepare` build, tarball test, CI build step before Lapster build |
 | `file:` dependency breaks CI | Use file only for local dev; pin a git commit or tag for CI/release |
 | Stale vendored copy silently returns | Delete vendor directory and add an import check in review |
@@ -784,7 +784,7 @@ after the interface is stable.
 
 - Resolved: the demo now uses the components. Raw capture, export and the wheel
   visual remain demo-shell features.
-- Whether to publish `0.4.36` to npm or use a pinned GitHub commit. Either is
+- Whether to publish `0.4.37` to npm or use a pinned GitHub commit. Either is
   acceptable if Lapster's lockfile and `THIRD_PARTY_NOTICES.md` record it.
 - The first hardware acceptance remains the CAMMUS C5 with optional external
   pedals/buttons; multi-device profile v2 is implemented in the library.

@@ -277,11 +277,11 @@ export class WebHIDDevicePicker extends WebHIDElement {
     return this._connectedSessions().find(entry => hardwareMatches(hardware, entry.hardware));
   }
 
-  _meta(hardware, driver) {
+  _meta(hardware, kind = 'HID device') {
     const signature = hardware && hardware.signature ? `#${hardware.signature.slice(0, 6)}` : null;
     return [
       `${hex(hardware && hardware.vendorId)}:${hex(hardware && hardware.productId)}`,
-      driver === 'wheel' ? 'wheel' : 'HID device',
+      kind,
       signature
     ].filter(Boolean).join(' · ');
   }
@@ -291,12 +291,15 @@ export class WebHIDDevicePicker extends WebHIDElement {
     const pills = [];
     if (caps.steering) pills.push('steering');
     if (caps.ffb) pills.push('FFB');
-    if (caps.axes || caps.buttons || caps.hats) pills.push('input');
+    if (caps.axes) pills.push(countLabel(caps.axes, 'axis', 'axes'));
+    if (caps.buttons) pills.push(countLabel(caps.buttons, 'button', 'buttons'));
+    if (caps.hats) pills.push(countLabel(caps.hats, 'hat', 'hats'));
+    const kind = caps.profile || caps.ffb ? 'wheel' : 'HID device';
     return `
       <div class="list-item${entry.id === this._selectedId ? ' selected' : ''}" data-select="${escapeHtml(entry.id)}">
         <div>
           <div class="device-name">${escapeHtml(entry.name || entry.id)}</div>
-          <div class="device-id">${escapeHtml(this._meta(entry.hardware, entry.driver))}</div>
+          <div class="device-id">${escapeHtml(this._meta(entry.hardware, kind))}</div>
         </div>
         <div class="caps">
           ${pills.map(label => `<span class="cap">${label}</span>`).join('')}
@@ -311,7 +314,7 @@ export class WebHIDDevicePicker extends WebHIDElement {
       <div class="list-item offline">
         <div>
           <div class="device-name">${escapeHtml(device.hardware.productName || 'Offline device')}</div>
-          <div class="device-id">${escapeHtml(this._meta(device.hardware, device.driver))}</div>
+          <div class="device-id">${escapeHtml(this._meta(device.hardware))}</div>
         </div>
         <div class="caps">
           <span class="cap off">offline</span>
@@ -378,6 +381,10 @@ function hardwareMatches(hardware, entryHardware) {
 function hex(value, width = 4) {
   if (value === undefined || value === null) return '----';
   return '0x' + Number(value).toString(16).toUpperCase().padStart(width, '0');
+}
+
+function countLabel(count, singular, plural) {
+  return `${count} ${count === 1 ? singular : plural}`;
 }
 
 function escapeHtml(value) {
