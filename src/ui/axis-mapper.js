@@ -87,10 +87,26 @@ export class WebHIDAxisMapper extends WebHIDElement {
       .live { font-variant-numeric: tabular-nums; color: var(--wheel-muted-color, #8f9bab); min-width: 40px; text-align: right; }
       .mapping.armed { outline: 1px solid var(--wheel-accent, #38bdf8); outline-offset: 2px; }
       .mapping .actions { justify-content: flex-end; }
+      .mapping .check span { display: none; }
       @media (max-width: 560px) {
-        .mapping { grid-template-columns: minmax(60px, 1fr) 62px 40px; }
-        .mapping > label { grid-column: 1 / -1; }
-        .mapping .actions { grid-column: 1 / -1; justify-content: flex-start; }
+        .mapping {
+          grid-template-columns: minmax(0, 1fr) 56px 40px;
+          gap: 6px 8px;
+          padding: 8px;
+          margin: 8px 0;
+          border: 1px solid var(--wheel-border-color, #2a303a);
+          border-radius: 4px;
+          background: rgba(255, 255, 255, .02);
+        }
+        .mapping > label:not(.check) { grid-column: 1; grid-row: 1; align-self: baseline; color: var(--wheel-fg-color, #e6e8eb); font-weight: 600; }
+        .mapping .actions { display: contents; }
+        .mapping .live { grid-column: 2 / -1; grid-row: 1; align-self: baseline; justify-self: end; text-align: right; line-height: inherit; }
+        .mapping > select[data-field="device"] { grid-column: 1 / 3; grid-row: 2; min-width: 0; }
+        .mapping > input[data-field="index"] { grid-column: 3; grid-row: 2; width: 100%; }
+        .mapping > .check { grid-column: 1; grid-row: 3; margin: 0; }
+        .mapping > .check span { display: inline; }
+        .mapping .actions [data-action="set"] { grid-column: 2; grid-row: 3; justify-self: start; }
+        .mapping .actions [data-action="clear"] { grid-column: 3; grid-row: 3; justify-self: end; }
       }
     `;
   }
@@ -131,7 +147,7 @@ export class WebHIDAxisMapper extends WebHIDElement {
           <label title="${label}">${label}</label>
           <select data-field="device"${disabled}>${this._options(devices, device)}</select>
           <input data-field="index" type="number" min="0" step="1" value="${index}" aria-label="${label} axis index"${disabled}>
-          <label class="check" title="Invert"><input data-field="invert" type="checkbox"${invert ? ' checked' : ''}${disabled}></label>
+          <label class="check" title="Invert"><input data-field="invert" type="checkbox"${invert ? ' checked' : ''}${disabled}><span>Invert</span></label>
           <div class="actions">
             <span class="live" data-live="0.00">0.00</span>
             <button type="button" data-action="set"${disabled}>Set</button>

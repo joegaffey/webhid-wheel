@@ -101,9 +101,26 @@ export class WebHIDButtonMapper extends WebHIDElement {
       .mapping.armed { outline: 1px solid var(--wheel-accent, #38bdf8); outline-offset: 2px; }
       .mapping .actions { justify-content: flex-end; }
       @media (max-width: 560px) {
-        .mapping, .mapping.direction-hidden { grid-template-columns: minmax(56px, 1fr) 74px 54px; }
-        .mapping > label { grid-column: 1 / -1; }
-        .mapping .actions { grid-column: 1 / -1; justify-content: flex-start; }
+        .mapping, .mapping.direction-hidden {
+          grid-template-columns: minmax(0, 1fr) 70px 70px;
+          gap: 6px 8px;
+          padding: 8px;
+          margin: 8px 0;
+          border: 1px solid var(--wheel-border-color, #2a303a);
+          border-radius: 4px;
+          background: rgba(255, 255, 255, .02);
+        }
+        .mapping > label { grid-column: 1; grid-row: 1; align-self: baseline; color: var(--wheel-fg-color, #e6e8eb); font-weight: 600; }
+        .mapping .actions { display: contents; }
+        .mapping .live { grid-column: 2 / -1; grid-row: 1; align-self: baseline; justify-self: end; text-align: right; line-height: inherit; }
+        .mapping > select[data-field="device"] { grid-column: 1 / -1; grid-row: 2; min-width: 0; }
+        .mapping > select[data-field="source"] { grid-column: 1; grid-row: 3; min-width: 0; }
+        .mapping > input[data-field="index"] { grid-column: 2; grid-row: 3; width: 100%; }
+        .mapping > select[data-field="direction"] { grid-column: 3; grid-row: 3; min-width: 0; }
+        .mapping.direction-hidden > select[data-field="source"] { grid-column: 1 / 3; }
+        .mapping.direction-hidden > input[data-field="index"] { grid-column: 3; }
+        .mapping .actions [data-action="set"] { grid-column: 1; grid-row: 4; justify-self: start; }
+        .mapping .actions [data-action="clear"] { grid-column: 2; grid-row: 4; justify-self: start; }
       }
     `;
   }

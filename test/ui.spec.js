@@ -1552,3 +1552,35 @@ test('FFB test buttons match the component button style', async ({ page }) => {
   });
   expect(styles.ffb).toEqual(styles.save);
 });
+
+test('mapping rows align labels and live values on mobile', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto('/');
+  const panel = page.locator('webhid-config-panel');
+  const centerDelta = (a, b) => Math.abs((a.top + a.bottom) / 2 - (b.top + b.bottom) / 2);
+
+  const axis = await panel.evaluate(element => {
+    const mapper = element.shadowRoot.querySelector('webhid-axis-mapper');
+    const row = mapper.shadowRoot.querySelector('[data-channel="throttle"]');
+    const label = row.querySelector('label');
+    const live = row.querySelector('.live');
+    return {
+      label: label.getBoundingClientRect().toJSON(),
+      live: live.getBoundingClientRect().toJSON()
+    };
+  });
+  expect(centerDelta(axis.label, axis.live)).toBeLessThan(3);
+
+  await panel.getByRole('tab', { name: 'Buttons' }).click();
+  const button = await panel.evaluate(element => {
+    const mapper = element.shadowRoot.querySelector('webhid-button-mapper');
+    const row = mapper.shadowRoot.querySelector('[data-channel="reverse"]');
+    const label = row.querySelector('label');
+    const live = row.querySelector('.live');
+    return {
+      label: label.getBoundingClientRect().toJSON(),
+      live: live.getBoundingClientRect().toJSON()
+    };
+  });
+  expect(centerDelta(button.label, button.live)).toBeLessThan(3);
+});
