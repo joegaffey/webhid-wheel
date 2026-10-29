@@ -6,7 +6,6 @@ const manager = new WheelManager();
 
 const els = {
   panel: document.querySelector('#configPanel'),
-  status: document.querySelector('#statusText'),
   force: document.querySelector('#force'),
   forceValue: document.querySelector('#forceValue'),
   applyForce: document.querySelector('#applyForce'),
@@ -26,11 +25,6 @@ els.panel.storageKey = STORAGE_KEY;
 
 let inputQueued = false;
 let lastReports = new Map();
-
-function setStatus(text, tone = '') {
-  els.status.textContent = text;
-  els.status.className = tone;
-}
 
 function escapeHtml(value) {
   return String(value == null ? '' : value).replace(/[&<>"']/g, ch => ({
@@ -61,7 +55,7 @@ async function restoreGrantedDevices() {
   try {
     devices = (await hid.getDevices()).filter(looksLikeInput);
   } catch (error) {
-    setStatus(`Could not restore granted devices: ${error.message}`, 'warn');
+    console.warn('Could not restore granted devices:', error);
     return;
   }
   for (const device of devices) {
@@ -211,9 +205,8 @@ async function copyExport() {
   els.exportOutput.classList.remove('hidden');
   try {
     await navigator.clipboard.writeText(json);
-    setStatus('JSON copied to clipboard.', 'ok');
-  } catch {
-    setStatus('Copy failed; select the JSON box and copy manually.', 'warn');
+  } catch (error) {
+    console.warn('Copy failed; select the JSON box and copy manually.', error);
   }
 }
 
@@ -226,7 +219,6 @@ function downloadExport() {
   anchor.download = `webhid-capture-${Date.now()}.json`;
   anchor.click();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
-  setStatus('JSON downloaded.', 'ok');
 }
 
 els.panel.addEventListener('webhid-copy', copyExport);
@@ -262,7 +254,7 @@ manager.on('disconnect', () => {
   scheduleInputUpdate();
 });
 manager.on('error', (error) => {
-  setStatus(error instanceof Error ? error.message : String(error), 'warn');
+  console.warn('Wheel manager error:', error);
 });
 manager.on('setup-applied', () => {
   els.panel.refresh();
@@ -270,7 +262,7 @@ manager.on('setup-applied', () => {
 });
 els.panel.addEventListener('webhid-error', (event) => {
   const error = event.detail && event.detail.error;
-  setStatus(error instanceof Error ? error.message : String(error || 'Unknown error'), 'warn');
+  console.warn('Wheel UI error:', error || 'Unknown error');
 });
 
 if (navigator.hid && typeof navigator.hid.addEventListener === 'function') {

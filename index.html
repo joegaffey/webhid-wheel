@@ -47,9 +47,6 @@
       .button:hover:not(:disabled) { border-color: var(--accent); color: var(--accent-2); }
       .button.primary { border-color: transparent; background: linear-gradient(180deg, var(--accent-2), var(--accent)); color: #08111f; }
       .button:disabled { opacity: .45; cursor: default; }
-      #statusText { color: var(--muted); font-size: .9rem; }
-      #statusText.ok { color: var(--ok); }
-      #statusText.warn { color: var(--warn); }
       .panel {
         background: linear-gradient(180deg, var(--panel), var(--panel-2));
         border: 1px solid var(--border);
@@ -114,9 +111,6 @@
           Map axes and buttons, save setup profiles, test force feedback and export raw captures.
           Needs a <a href="https://caniuse.com/webhid">WebHID-capable browser</a>.
         </p>
-        <div class="toolbar">
-          <span id="statusText">No device connected</span>
-        </div>
       </header>
 
       <div class="layout">
