@@ -8,6 +8,7 @@ export class WebHIDDevicePicker extends WebHIDElement {
     this._hidHandler = () => this.scheduleRefresh();
     this._busy = false;
     this._selectedId = null;
+    this._error = '';
   }
 
   set selectedId(value) {
@@ -130,17 +131,23 @@ export class WebHIDDevicePicker extends WebHIDElement {
   async _connect() {
     if (!this.manager || this._busy) return;
     this._busy = true;
+    this._error = '';
+    // Call requestDevice from the original gesture task, before touching the DOM.
+    const pending = this.manager.connect();
     this.refresh();
     try {
-      const session = await this.manager.connect();
+      const session = await pending;
       if (session) {
+        this._error = '';
         this.emit('webhid-connect', { session, device: session.device });
       } else {
+        this._error = 'No device selected. Check the device connection and choose it in the browser prompt.';
         this.emit('webhid-authorization-required', {
           filters: (this.manager.options && this.manager.options.filters) || []
         });
       }
     } catch (error) {
+      this._error = this._connectErrorMessage(error);
       this.emit('webhid-error', { error });
     } finally {
       this._busy = false;
@@ -148,13 +155,26 @@ export class WebHIDDevicePicker extends WebHIDElement {
     }
   }
 
+  _connectErrorMessage(error) {
+    const name = error && error.name;
+    if (name === 'NotAllowedError' || name === 'SecurityError') {
+      return 'Device selection was cancelled or permission was denied.';
+    }
+    if (name === 'NotSupportedError') {
+      return 'WebHID device selection is not supported in this browser.';
+    }
+    return error && error.message ? error.message : String(error || 'Could not connect the device.');
+  }
+
   async _disconnect(id) {
     if (!this.manager || this._busy) return;
     this._busy = true;
+    this._error = '';
     this.refresh();
     try {
       await this.manager.disconnect(id);
     } catch (error) {
+      this._error = this._connectErrorMessage(error);
       this.emit('webhid-error', { error });
     } finally {
       this._busy = false;
@@ -165,10 +185,12 @@ export class WebHIDDevicePicker extends WebHIDElement {
   async _disconnectAll() {
     if (!this.manager || this._busy) return;
     this._busy = true;
+    this._error = '';
     this.refresh();
     try {
       await this.manager.disconnectAll();
     } catch (error) {
+      this._error = this._connectErrorMessage(error);
       this.emit('webhid-error', { error });
     } finally {
       this._busy = false;
@@ -186,7 +208,8 @@ export class WebHIDDevicePicker extends WebHIDElement {
     this._bindManager();
 
     const hid = typeof navigator !== 'undefined' ? navigator.hid : null;
-    const available = !!(hid && typeof hid.requestDevice === 'function');
+    const available = !!hid;
+    const canRequest = !!(hid && typeof hid.requestDevice === 'function');
     const list = this.shadowRoot.querySelector('[data-role="list"]');
     const status = this.shadowRoot.querySelector('[data-role="status"]');
     const state = this.shadowRoot.querySelector('[data-role="hid-state"]');
@@ -200,13 +223,20 @@ export class WebHIDDevicePicker extends WebHIDElement {
     if (!this._selectedId || !sessions.some(entry => entry.id === this._selectedId)) {
       this._selectedId = sessions[0] ? sessions[0].id : null;
     }
+    if (connected.length) this._error = '';
 
     state.textContent = available ? 'WebHID available' : 'WebHID unavailable';
     if (!this.manager) {
       status.textContent = 'No wheel manager configured.';
       status.className = 'status error';
     } else if (!available) {
-      status.textContent = 'WebHID is not available in this browser. Keyboard, gamepad and touch input continue in the host app.';
+      status.textContent = 'WebHID is not available in this browser. Use a Chromium browser with WebHID enabled (desktop Chrome/Edge or Chrome Beta) over HTTPS; keyboard, gamepad and touch input continue in the host app.';
+      status.className = 'status error';
+    } else if (!canRequest) {
+      status.textContent = 'WebHID is available, but this browser build does not expose device selection (requestDevice).';
+      status.className = 'status error';
+    } else if (this._error) {
+      status.textContent = this._error;
       status.className = 'status error';
     } else if (connected.length) {
       status.textContent = `${connected.length} device${connected.length === 1 ? '' : 's'} connected.`;
@@ -216,7 +246,10 @@ export class WebHIDDevicePicker extends WebHIDElement {
       status.className = 'status';
     }
 
-    connect.disabled = !this.manager || !available || this._busy;
+    connect.disabled = !this.manager || !canRequest || this._busy;
+    connect.title = !available
+      ? 'WebHID is not available in this browser build'
+      : (canRequest ? 'Connect a WebHID device' : 'Device selection is not available in this browser build');
     connect.textContent = this._busy ? 'Connecting…' : 'Connect device';
     disconnectAll.disabled = !this.manager || !connected.length || this._busy;
     copy.disabled = !sessions.length || this._busy;

@@ -547,3 +547,86 @@ test('config panel has no status banner and disables profile actions without a d
   await expect(panel.locator('[data-action="save"]')).toBeEnabled();
   await expect(panel.locator('.profiles [data-action="export"]')).toBeEnabled();
 });
+
+test('device picker reports cancelled and rejected connect attempts', async ({ page }) => {
+  await page.goto('/');
+  const result = await page.evaluate(async () => {
+    const picker = document.createElement('webhid-device-picker');
+    const manager = {
+      sessionList: [],
+      options: { filters: [] },
+      on() {},
+      off() {},
+      connect: async () => null
+    };
+    picker.manager = manager;
+    document.body.append(picker);
+    await new Promise(resolve => requestAnimationFrame(resolve));
+
+    picker.shadowRoot.querySelector('[data-action="connect"]').click();
+    await new Promise(resolve => setTimeout(resolve, 30));
+    const cancelled = picker.shadowRoot.querySelector('[data-role="status"]').textContent;
+
+    manager.connect = async () => {
+      const error = new Error('Permission denied');
+      error.name = 'NotAllowedError';
+      throw error;
+    };
+    picker.shadowRoot.querySelector('[data-action="connect"]').click();
+    await new Promise(resolve => setTimeout(resolve, 30));
+    const rejected = picker.shadowRoot.querySelector('[data-role="status"]').textContent;
+
+    return { cancelled, rejected };
+  });
+
+  expect(result.cancelled).toContain('No device selected');
+  expect(result.rejected).toContain('cancelled or permission was denied');
+});
+
+test('device picker explains the unsupported WebHID state', async ({ page }) => {
+  await page.addInitScript(() => {
+    Object.defineProperty(navigator, 'hid', { value: undefined, configurable: true });
+  });
+  await page.goto('/');
+  const result = await page.evaluate(() => {
+    const panel = document.querySelector('webhid-config-panel');
+    const picker = panel?.shadowRoot?.querySelector('webhid-device-picker');
+    const connect = picker?.shadowRoot?.querySelector('[data-action="connect"]');
+    const status = picker?.shadowRoot?.querySelector('[data-role="status"]');
+    return {
+      disabled: !!connect?.disabled,
+      title: connect?.title || '',
+      status: status?.textContent || ''
+    };
+  });
+  expect(result.disabled).toBe(true);
+  expect(result.title).toContain('not available');
+  expect(result.status).toContain('desktop Chrome/Edge or Chrome Beta');
+});
+
+test('device picker distinguishes WebHID from missing requestDevice', async ({ page }) => {
+  await page.addInitScript(() => {
+    Object.defineProperty(navigator, 'hid', {
+      value: { getDevices: async () => [] },
+      configurable: true
+    });
+  });
+  await page.goto('/');
+  const result = await page.evaluate(() => {
+    const panel = document.querySelector('webhid-config-panel');
+    const picker = panel?.shadowRoot?.querySelector('webhid-device-picker');
+    const connect = picker?.shadowRoot?.querySelector('[data-action="connect"]');
+    const status = picker?.shadowRoot?.querySelector('[data-role="status"]');
+    const badge = picker?.shadowRoot?.querySelector('[data-role="hid-state"]');
+    return {
+      disabled: !!connect?.disabled,
+      title: connect?.title || '',
+      status: status?.textContent || '',
+      badge: badge?.textContent || ''
+    };
+  });
+  expect(result.disabled).toBe(true);
+  expect(result.badge).toBe('WebHID available');
+  expect(result.status).toContain('does not expose device selection');
+  expect(result.title).toContain('Device selection is not available');
+});
