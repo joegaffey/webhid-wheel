@@ -4,19 +4,19 @@ Read a USB HID steering wheel directly in the browser over the [WebHID](https://
 
 **Live demo:** [webhid-wheel demo](https://joegaffey.com/webhid-wheel/)
 
-Plug devices in over USB, click **Connect device**, and pick one from the browser's device list. Requires a WebHID-capable browser and a secure context (https or `localhost`).
+Plug devices in over USB, click **Add device**, and pick one from the browser's device list. Requires a WebHID-capable browser and a secure context (https or `localhost`).
 
 ## Features
 
 - **Input** — steering, axes, buttons and POV hats from any HID wheel, gamepad, pedal set or button box, using a small profile registry with a generic **HID-descriptor fallback** for unknown devices.
 - **Force feedback** — constant force where the device supports it: built-in CAMMUS C5/C12, FFBeast and classic Logitech (G29 / Driving Force GT) profiles, plus automatic **USB-PID** detection for compliant devices. `constantFast()` reuses the running effect for high-rate updates. Includes force inversion and is safe by default (low strength, explicit stop).
 - **Mapping and capture** — combine multiple HID devices, map axes/buttons/hats to semantic channels, and copy/download raw device captures for known-device profiles.
-- **Setup profiles** — multi-device profile schema with hardware matching, validation, v1 migration, and reconnect to already-authorized devices.
+- **Setup profiles** — multi-device profile schema with hardware matching, validation, v1 migration, and reconnect to already-authorized devices. Offline profile devices stay visible as offline; Remove affects the working device list, and Save persists the change to the profile. Profiles can also be deleted.
 - **Web components** — drop-in `<webhid-config-panel>` with device picker, steering/FFB controls, axis and button mapping. Shadow DOM, CSS custom properties and app extension slots.
 
 ## Multi-device mapping
 
-The demo page connects multiple HID devices, shows wheel/FFB capability, and maps:
+The demo page adds multiple HID devices, shows wheel/FFB capability, and maps:
 
 - steering, deadzone, saturation and FFB in the steering section
 - throttle, brake, clutch and handbrake in the axis section
@@ -182,7 +182,7 @@ G29 and Driving Force GT use Logitech's classic force-feedback protocol. G920, G
 
 The T248 exposes force feedback on a vendor report that WebHID cannot send. On Windows, PadForge can expose a virtual HID-PID wheel and forward its force feedback to the T248. The same bridge pattern works for other native-FFB wheels PadForge can drive; see [PadForge wheel bridge for WebHID](./docs/padforge-wheel-bridge.md).
 
-Got an unsupported wheel? Open the demo, connect it, turn full-lock and press every button, then use **Copy** or **Export** in the device panel and attach the capture.
+Got an unsupported wheel? Open the demo, add it, turn full-lock and press every button, then use **Copy** or **Export** in the device panel and attach the capture.
 
 ## Run locally
 

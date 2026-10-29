@@ -5,6 +5,15 @@ import {
 
 /////////////////////// Inspired by https://github.com/TheBITLINK/WebHID-DS4
 
+const DISCONNECT_TIMEOUT_MS = 1500;
+
+function withTimeout(promise, ms = DISCONNECT_TIMEOUT_MS) {
+  return Promise.race([
+    Promise.resolve(promise).catch(() => {}),
+    new Promise(resolve => setTimeout(resolve, ms))
+  ]);
+}
+
 function readBits(view, bitOffset, size) {
   let value = 0;
   for (let i = 0; i < size; i++) {
@@ -339,13 +348,21 @@ export function detectDeviceCapabilities(device) {
     (profile.ffb.constant || profile.ffb.constantFast || profile.ffb.periodic)) ||
     !!buildPidFfb(device);
   const steering = !!(steeringLayout || (profile && profile.parse));
+  const name = device.productName || '';
+  const gamepadName = /gamepad|game pad|controller|joypad/i.test(name);
+  const wheelName = /wheel|racing|steering|force feedback|\bffb\b/i.test(name);
+  const topUsage = (device.collections || [])
+    .filter(collection => collection.usagePage === 0x01)
+    .map(collection => collection.usage)
+    .find(usage => usage !== undefined);
+  const isWheel = !!profile || ffb || (!gamepadName && (wheelName || (steeringLayout && topUsage === 0x04)));
   return {
-    steering,
+    steering: isWheel ? steering : false,
     ffb,
     axes: generic.axes.length,
     buttons: generic.buttons.length,
     hats: generic.hats.length,
-    driver: steering || ffb ? 'wheel' : 'generic',
+    driver: isWheel ? 'wheel' : 'generic',
     profile: profile ? profile.name : null
   };
 }
@@ -788,8 +805,8 @@ export class WebHIDDevice {
 
   async disconnect() {
     const dev = this.device;
-    if (dev && dev.opened) { try { await dev.close(); } catch (e) { /* noop */ } }
     this.device = null;
+    if (dev && dev.opened) { try { await withTimeout(dev.close()); } catch (e) { /* noop */ } }
     if (dev) this.emit('disconnect', dev);
   }
 
@@ -916,9 +933,9 @@ export class WebHIDWheel {
 
   async disconnect() {
     const dev = this.device;
-    if (dev) { try { await this.stopEffects(); } catch (e) { /* noop */ } }
-    if (dev && dev.opened) { try { await dev.close(); } catch (e) { /* noop */ } }
+    if (dev) { try { await withTimeout(this.stopEffects()); } catch (e) { /* noop */ } }
     this.device = null;
+    if (dev && dev.opened) { try { await withTimeout(dev.close()); } catch (e) { /* noop */ } }
     if (dev) this.emit('disconnect', dev);
   }
 

@@ -145,14 +145,14 @@ recover those devices' hardware; those mappings are recorded under
 
 The demo uses `<webhid-config-panel>` and its sub-elements:
 
-- one **Connect device** action
-- connected device list with capability badges, per-device selection and disconnect
-- disconnected sessions are hidden but retained for reconnect and mapping reuse
+- one **Add device** action
+- device list with capability badges, per-device selection and remove
+- offline profile devices remain listed as offline; Remove affects the working list and Save updates the profile
 - raw input under the selected device, following its selection
 - steering source and force-output selection in the Wheel tab
 - throttle, brake, clutch and handbrake mapping in the Pedals & axes tab
 - fixed button/shifter actions in the Buttons tab
-- setup profile import/export below the tabs
+- setup profile import/export/delete below the tabs
 - Copy / Export diagnostic JSON
 
 Devices are listed by name and session ID. There is no synthetic `wheel` role.
@@ -278,7 +278,7 @@ Done:
 - generic HID descriptor parsing with axes, buttons, POV hats and multiple reports
 - `WebHIDDevice`
 - `mapChannels()`
-- device list, FFB badge, unified Connect
+- device list, FFB badge, unified Add
 - mapping capture with raw min/max/samples
 - metadata-only localStorage and versioned setup profiles
 - unified Copy/Export diagnostics
@@ -286,7 +286,7 @@ Done:
 - `WheelManager` session model, calibration and capability detection
 - multi-device setup-profile v2 validation/matching/migration
 - `<webhid-config-panel>` and the device/steering/axis/button elements
-- demo migrated to the UI package with one Connect device flow
+- demo migrated to the UI package with one Add device flow
 
 Next:
 

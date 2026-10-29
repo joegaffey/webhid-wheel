@@ -96,16 +96,16 @@ test('device picker exposes the unavailable state without WebHID', async ({ page
   const result = await page.evaluate(() => {
     const picker = document.querySelector('webhid-config-panel')?.shadowRoot?.querySelector('webhid-device-picker');
     const connect = picker?.shadowRoot?.querySelector('[data-action="connect"]');
-    const status = picker?.shadowRoot?.querySelector('[data-role="status"]');
+    const badge = picker?.shadowRoot?.querySelector('[data-role="hid-state"]');
     return {
       hasHid: !!navigator.hid,
       connectDisabled: !!connect?.disabled,
-      status: status?.textContent || ''
+      badge: badge?.textContent || ''
     };
   });
   if (!result.hasHid) {
     expect(result.connectDisabled).toBe(true);
-    expect(result.status).toContain('WebHID is not available');
+    expect(result.badge).toBe('WebHID unavailable');
   }
 });
 
@@ -548,7 +548,7 @@ test('config panel has no status banner and disables profile actions without a d
   await expect(panel.locator('.profiles [data-action="export"]')).toBeEnabled();
 });
 
-test('device picker reports cancelled and rejected connect attempts', async ({ page }) => {
+test('device picker uses a simple empty state without a status panel', async ({ page }) => {
   await page.goto('/');
   const result = await page.evaluate(async () => {
     const picker = document.createElement('webhid-device-picker');
@@ -562,25 +562,22 @@ test('device picker reports cancelled and rejected connect attempts', async ({ p
     picker.manager = manager;
     document.body.append(picker);
     await new Promise(resolve => requestAnimationFrame(resolve));
-
+    const before = picker.shadowRoot.querySelector('[data-role="list"]').textContent.trim();
+    let authorizationEvent = false;
+    picker.addEventListener('webhid-authorization-required', () => { authorizationEvent = true; });
     picker.shadowRoot.querySelector('[data-action="connect"]').click();
     await new Promise(resolve => setTimeout(resolve, 30));
-    const cancelled = picker.shadowRoot.querySelector('[data-role="status"]').textContent;
-
-    manager.connect = async () => {
-      const error = new Error('Permission denied');
-      error.name = 'NotAllowedError';
-      throw error;
+    return {
+      before,
+      after: picker.shadowRoot.querySelector('[data-role="list"]').textContent.trim(),
+      statusPanel: !!picker.shadowRoot.querySelector('[data-role="status"]'),
+      authorizationEvent
     };
-    picker.shadowRoot.querySelector('[data-action="connect"]').click();
-    await new Promise(resolve => setTimeout(resolve, 30));
-    const rejected = picker.shadowRoot.querySelector('[data-role="status"]').textContent;
-
-    return { cancelled, rejected };
   });
-
-  expect(result.cancelled).toContain('No device selected');
-  expect(result.rejected).toContain('cancelled or blocked by Chrome');
+  expect(result.before).toBe('No devices added');
+  expect(result.after).toBe('No devices added');
+  expect(result.statusPanel).toBe(false);
+  expect(result.authorizationEvent).toBe(true);
 });
 
 test('device picker explains the unsupported WebHID state', async ({ page }) => {
@@ -592,16 +589,19 @@ test('device picker explains the unsupported WebHID state', async ({ page }) => 
     const panel = document.querySelector('webhid-config-panel');
     const picker = panel?.shadowRoot?.querySelector('webhid-device-picker');
     const connect = picker?.shadowRoot?.querySelector('[data-action="connect"]');
-    const status = picker?.shadowRoot?.querySelector('[data-role="status"]');
+    const badge = picker?.shadowRoot?.querySelector('[data-role="hid-state"]');
+    const list = picker?.shadowRoot?.querySelector('[data-role="list"]');
     return {
       disabled: !!connect?.disabled,
       title: connect?.title || '',
-      status: status?.textContent || ''
+      badge: badge?.textContent || '',
+      list: list?.textContent.trim() || ''
     };
   });
   expect(result.disabled).toBe(true);
   expect(result.title).toContain('not available');
-  expect(result.status).toContain('desktop Chrome/Edge or Chrome Beta');
+  expect(result.badge).toBe('WebHID unavailable');
+  expect(result.list).toBe('No devices added');
 });
 
 test('device picker distinguishes WebHID from missing requestDevice', async ({ page }) => {
@@ -616,17 +616,889 @@ test('device picker distinguishes WebHID from missing requestDevice', async ({ p
     const panel = document.querySelector('webhid-config-panel');
     const picker = panel?.shadowRoot?.querySelector('webhid-device-picker');
     const connect = picker?.shadowRoot?.querySelector('[data-action="connect"]');
-    const status = picker?.shadowRoot?.querySelector('[data-role="status"]');
     const badge = picker?.shadowRoot?.querySelector('[data-role="hid-state"]');
+    const list = picker?.shadowRoot?.querySelector('[data-role="list"]');
     return {
       disabled: !!connect?.disabled,
       title: connect?.title || '',
-      status: status?.textContent || '',
-      badge: badge?.textContent || ''
+      badge: badge?.textContent || '',
+      list: list?.textContent.trim() || ''
     };
   });
   expect(result.disabled).toBe(true);
   expect(result.badge).toBe('WebHID available');
-  expect(result.status).toContain('does not expose device selection');
+  expect(result.list).toBe('No devices added');
   expect(result.title).toContain('Device selection is not available');
+});
+
+test('device pills show only relevant capabilities and no connection state pill', async ({ page }) => {
+  await page.goto('/');
+  const result = await page.evaluate(async () => {
+    const manager = window.__webhidDemo.manager;
+    const usage = (page, id) => (page << 16) | id;
+    const item = (usages, reportSize, reportCount = 1) => ({ usages, reportSize, reportCount, logicalMinimum: 0, logicalMaximum: (1 << reportSize) - 1 });
+    const fake = (name, descriptor, vendorId, productId) => ({
+      collections: descriptor,
+      productName: name,
+      vendorId,
+      productId,
+      opened: false,
+      oninputreport: null,
+      async open() { this.opened = true; },
+      async close() { this.opened = false; },
+      async sendReport() {}
+    });
+    await manager.connect(fake('Pill Wheel', [{
+      usagePage: 1,
+      usage: 4,
+      inputReports: [{ reportId: 1, items: [item([usage(1, 0x30)], 16), item([usage(9, 1)], 1, 8)] }],
+      outputReports: [],
+      featureReports: []
+    }], 0x8001, 0x9001));
+    await manager.connect(fake('Pill Pedals', [{
+      usagePage: 1,
+      usage: 5,
+      inputReports: [{ reportId: 2, items: [item([usage(1, 0x32)], 8)] }],
+      outputReports: [],
+      featureReports: []
+    }], 0x8002, 0x9002));
+    await new Promise(resolve => setTimeout(resolve, 40));
+
+    const panel = document.querySelector('webhid-config-panel');
+    const picker = panel.shadowRoot.querySelector('webhid-device-picker');
+    const rows = [...picker.shadowRoot.querySelectorAll('[data-select]')];
+    return rows.map(row => ({
+      name: row.querySelector('.device-name').textContent,
+      meta: row.querySelector('.device-id').textContent,
+      pills: [...row.querySelectorAll('.cap')].map(pill => pill.textContent)
+    }));
+  });
+
+  const wheel = result.find(row => row.name === 'Pill Wheel');
+  const pedals = result.find(row => row.name === 'Pill Pedals');
+  expect(wheel.pills).toEqual(['steering', 'input']);
+  expect(pedals.pills).toEqual(['input']);
+  expect(wheel.meta).toMatch(/^0x8001:0x9001 · wheel · #[0-9a-f]{6}$/);
+  expect(pedals.meta).toMatch(/^0x8002:0x9002 · HID device · #[0-9a-f]{6}$/);
+  expect(wheel.meta).not.toContain('device-');
+  expect(result.flatMap(row => row.pills)).not.toContain('on');
+  expect(result.flatMap(row => row.pills)).not.toContain('off');
+});
+
+test('remove works while a device selection is pending', async ({ page }) => {
+  await page.goto('/');
+  const result = await page.evaluate(async () => {
+    const manager = window.__webhidDemo.manager;
+    const usage = (page, id) => (page << 16) | id;
+    const item = (usages, reportSize, reportCount = 1) => ({ usages, reportSize, reportCount, logicalMinimum: 0, logicalMaximum: (1 << reportSize) - 1 });
+    const fake = {
+      collections: [{
+        usagePage: 1,
+        usage: 4,
+        inputReports: [{ reportId: 1, items: [item([usage(1, 0x30)], 16)] }],
+        outputReports: [],
+        featureReports: []
+      }],
+      productName: 'Pending Remove Wheel',
+      vendorId: 0xa001,
+      productId: 0xb001,
+      opened: false,
+      oninputreport: null,
+      async open() { this.opened = true; },
+      async close() { this.opened = false; },
+      async sendReport() {}
+    };
+    await manager.connect(fake);
+    await new Promise(resolve => setTimeout(resolve, 40));
+
+    manager.connect = () => new Promise(() => {});
+    const panel = document.querySelector('webhid-config-panel');
+    const picker = panel.shadowRoot.querySelector('webhid-device-picker');
+    picker.shadowRoot.querySelector('[data-action="connect"]').click();
+    await new Promise(resolve => setTimeout(resolve, 20));
+
+    const busyBefore = picker._busy;
+    const remove = picker.shadowRoot.querySelector('[data-action="remove-session"]');
+    const removeEnabled = !!remove && !remove.disabled;
+    remove.click();
+    await new Promise(resolve => setTimeout(resolve, 60));
+
+    return {
+      busyBefore,
+      busyAfter: picker._busy,
+      removeEnabled,
+      list: picker.shadowRoot.querySelector('[data-role="list"]').textContent.trim(),
+      connected: manager.isConnected
+    };
+  });
+
+  expect(result.busyBefore).toBe(true);
+  expect(result.removeEnabled).toBe(true);
+  expect(result.list).toBe('No devices added');
+  expect(result.connected).toBe(false);
+});
+
+test('remove hides the device immediately even if disconnect hangs', async ({ page }) => {
+  await page.goto('/');
+  const result = await page.evaluate(async () => {
+    const manager = window.__webhidDemo.manager;
+    const usage = (page, id) => (page << 16) | id;
+    const item = (usages, reportSize, reportCount = 1) => ({ usages, reportSize, reportCount, logicalMinimum: 0, logicalMaximum: (1 << reportSize) - 1 });
+    const fake = {
+      collections: [{
+        usagePage: 1,
+        usage: 4,
+        inputReports: [{ reportId: 1, items: [item([usage(1, 0x30)], 16)] }],
+        outputReports: [],
+        featureReports: []
+      }],
+      productName: 'Hung Disconnect Wheel',
+      vendorId: 0xc001,
+      productId: 0xd001,
+      opened: false,
+      oninputreport: null,
+      async open() { this.opened = true; },
+      async close() { this.opened = false; },
+      async sendReport() {}
+    };
+    await manager.connect(fake);
+    await new Promise(resolve => setTimeout(resolve, 40));
+    manager.disconnect = () => new Promise(() => {});
+    const panel = document.querySelector('webhid-config-panel');
+    const picker = panel.shadowRoot.querySelector('webhid-device-picker');
+    const remove = picker.shadowRoot.querySelector('[data-action="remove-session"]');
+    remove.click();
+    await new Promise(resolve => setTimeout(resolve, 40));
+    return {
+      list: picker.shadowRoot.querySelector('[data-role="list"]').textContent.trim(),
+      removing: picker._removing.size
+    };
+  });
+  expect(result.list).toBe('No devices added');
+  expect(result.removing).toBe(1);
+});
+
+test('device list stays stable while input is flowing so Remove can be clicked', async ({ page }) => {
+  await page.goto('/');
+  const result = await page.evaluate(async () => {
+    const manager = window.__webhidDemo.manager;
+    const usage = (page, id) => (page << 16) | id;
+    const item = (usages, reportSize, reportCount = 1) => ({ usages, reportSize, reportCount, logicalMinimum: 0, logicalMaximum: (1 << reportSize) - 1 });
+    const fake = {
+      collections: [{
+        usagePage: 1,
+        usage: 4,
+        inputReports: [{ reportId: 1, items: [item([usage(1, 0x30)], 16), item([usage(9, 1)], 1, 8)] }],
+        outputReports: [],
+        featureReports: []
+      }],
+      productName: 'Streaming Wheel',
+      vendorId: 0xe001,
+      productId: 0xf001,
+      opened: false,
+      oninputreport: null,
+      async open() { this.opened = true; },
+      async close() { this.opened = false; },
+      async sendReport() {}
+    };
+    await manager.connect(fake);
+    await new Promise(resolve => setTimeout(resolve, 40));
+    const panel = document.querySelector('webhid-config-panel');
+    const picker = panel.shadowRoot.querySelector('webhid-device-picker');
+    const before = picker.shadowRoot.querySelector('[data-action="remove-session"]');
+    fake.oninputreport({ data: new DataView(Uint8Array.from([0, 128, 0, 0, 0]).buffer), timeStamp: 1, reportId: 1 });
+    await new Promise(resolve => requestAnimationFrame(resolve));
+    await new Promise(resolve => setTimeout(resolve, 20));
+    const after = picker.shadowRoot.querySelector('[data-action="remove-session"]');
+    after.click();
+    await new Promise(resolve => setTimeout(resolve, 80));
+    return {
+      sameNode: before === after,
+      list: picker.shadowRoot.querySelector('[data-role="list"]').textContent.trim(),
+      connected: manager.isConnected
+    };
+  });
+  expect(result.sameNode).toBe(true);
+  expect(result.list).toBe('No devices added');
+  expect(result.connected).toBe(false);
+});
+
+test('a dismissed device does not auto-restore after reload', async ({ page }) => {
+  await page.addInitScript(() => {
+    const usage = (page, id) => (page << 16) | id;
+    const item = (usages, reportSize, reportCount = 1) => ({
+      usages, reportSize, reportCount, logicalMinimum: 0, logicalMaximum: (1 << reportSize) - 1
+    });
+    const makeDevice = () => ({
+      collections: [{
+        usagePage: 1,
+        usage: 4,
+        inputReports: [{ reportId: 1, items: [item([usage(1, 0x30)], 16), item([usage(9, 1)], 1, 8)] }],
+        outputReports: [],
+        featureReports: []
+      }],
+      productName: 'Persisted Wheel',
+      vendorId: 0x0e01,
+      productId: 0x0f01,
+      opened: false,
+      oninputreport: null,
+      async open() { this.opened = true; },
+      async close() { this.opened = false; },
+      async sendReport() {}
+    });
+    Object.defineProperty(navigator, 'hid', {
+      configurable: true,
+      value: {
+        getDevices: async () => [makeDevice()],
+        requestDevice: async () => [],
+        addEventListener() {},
+        removeEventListener() {}
+      }
+    });
+  });
+
+  await page.goto('/');
+  await expect(page.locator('webhid-config-panel').locator('webhid-device-picker')).toContainText('Persisted Wheel');
+  const dismissed = await page.evaluate(() => {
+    const picker = document.querySelector('webhid-config-panel').shadowRoot.querySelector('webhid-device-picker');
+    picker.shadowRoot.querySelector('[data-action="remove-session"]').click();
+    return new Promise(resolve => setTimeout(() => {
+      resolve(localStorage.getItem('webhid-wheel:dismissed:v1'));
+    }, 80));
+  });
+  expect(dismissed).toBeTruthy();
+  expect(JSON.parse(dismissed).length).toBeGreaterThan(0);
+
+  await page.reload();
+  await page.waitForTimeout(150);
+  const afterReload = await page.evaluate(() => {
+    const picker = document.querySelector('webhid-config-panel').shadowRoot.querySelector('webhid-device-picker');
+    return {
+      list: picker.shadowRoot.querySelector('[data-role="list"]').textContent.trim(),
+      connected: window.__webhidDemo.manager.isConnected
+    };
+  });
+  expect(afterReload.list).toBe('No devices added');
+  expect(afterReload.connected).toBe(false);
+});
+
+test('settings are not saved until Save is clicked', async ({ page }) => {
+  await page.goto('/');
+  const result = await page.evaluate(async () => {
+    localStorage.removeItem('webhid-wheel:v3:profiles');
+    const manager = window.__webhidDemo.manager;
+    const usage = (page, id) => (page << 16) | id;
+    const item = (usages, reportSize, reportCount = 1) => ({ usages, reportSize, reportCount, logicalMinimum: 0, logicalMaximum: (1 << reportSize) - 1 });
+    const fake = {
+      collections: [{
+        usagePage: 1,
+        usage: 4,
+        inputReports: [{ reportId: 1, items: [item([usage(1, 0x30)], 16), item([usage(9, 1)], 1, 8)] }],
+        outputReports: [],
+        featureReports: []
+      }],
+      productName: 'Auto Save Wheel',
+      vendorId: 0x0b01,
+      productId: 0x0c01,
+      opened: false,
+      oninputreport: null,
+      async open() { this.opened = true; },
+      async close() { this.opened = false; },
+      async sendReport() {}
+    };
+    await manager.connect(fake);
+    await new Promise(resolve => setTimeout(resolve, 50));
+    const panel = document.querySelector('webhid-config-panel');
+    const steering = panel.shadowRoot.querySelector('webhid-steering-config');
+    const deadzone = steering.shadowRoot.querySelector('[data-setting="deadzone"]');
+    deadzone.value = '0.2';
+    deadzone.dispatchEvent(new Event('input', { bubbles: true }));
+    await new Promise(resolve => setTimeout(resolve, 700));
+    const beforeSave = localStorage.getItem('webhid-wheel:v3:profiles');
+    panel.shadowRoot.querySelector('[data-action="save"]').click();
+    await new Promise(resolve => setTimeout(resolve, 60));
+    const raw = localStorage.getItem('webhid-wheel:v3:profiles');
+    return { beforeSave, afterSave: raw ? JSON.parse(raw) : null };
+  });
+  expect(result.beforeSave).toBeNull();
+  expect(result.afterSave).toBeTruthy();
+  expect(result.afterSave.profiles[0].settings.steering.deadzone).toBeCloseTo(0.2);
+});
+
+test('all granted input devices restore on load', async ({ page }) => {
+  await page.addInitScript(() => {
+    const usage = (page, id) => (page << 16) | id;
+    const item = (usages, reportSize, reportCount = 1) => ({ usages, reportSize, reportCount, logicalMinimum: 0, logicalMaximum: (1 << reportSize) - 1 });
+    const base = (name, descriptor, vendorId, productId) => ({
+      collections: descriptor,
+      productName: name,
+      vendorId,
+      productId,
+      opened: false,
+      oninputreport: null,
+      async open() { this.opened = true; },
+      async close() { this.opened = false; },
+      async sendReport() {}
+    });
+    Object.defineProperty(navigator, 'hid', {
+      configurable: true,
+      value: {
+        getDevices: async () => [
+          base('Restore Wheel', [{
+            usagePage: 1,
+            usage: 4,
+            inputReports: [{ reportId: 1, items: [item([usage(1, 0x30)], 16)] }],
+            outputReports: [],
+            featureReports: []
+          }], 0x1101, 0x1201),
+          base('Restore Pedals', [{
+            usagePage: 1,
+            usage: 5,
+            inputReports: [{ reportId: 2, items: [item([usage(1, 0x32)], 8)] }],
+            outputReports: [],
+            featureReports: []
+          }], 0x1102, 0x1202),
+          base('Restore Button Box', [{
+            usagePage: 0xff00,
+            usage: 1,
+            inputReports: [{ reportId: 3, items: [item([usage(9, 1)], 1, 8)] }],
+            outputReports: [],
+            featureReports: []
+          }], 0x1103, 0x1203)
+        ],
+        requestDevice: async () => [],
+        addEventListener() {},
+        removeEventListener() {}
+      }
+    });
+  });
+  await page.goto('/');
+  await page.waitForTimeout(250);
+  const names = await page.evaluate(() => {
+    const picker = document.querySelector('webhid-config-panel').shadowRoot.querySelector('webhid-device-picker');
+    return [...picker.shadowRoot.querySelectorAll('[data-select] .device-name')].map(node => node.textContent);
+  });
+  expect(names).toEqual(expect.arrayContaining(['Restore Wheel', 'Restore Pedals', 'Restore Button Box']));
+  expect(names.length).toBe(3);
+});
+
+test('typing a profile name is not saved until Save is clicked', async ({ page }) => {
+  await page.goto('/');
+  const result = await page.evaluate(async () => {
+    const manager = window.__webhidDemo.manager;
+    const usage = (page, id) => (page << 16) | id;
+    const item = (usages, reportSize, reportCount = 1) => ({ usages, reportSize, reportCount, logicalMinimum: 0, logicalMaximum: (1 << reportSize) - 1 });
+    const fake = {
+      collections: [{
+        usagePage: 1,
+        usage: 4,
+        inputReports: [{ reportId: 1, items: [item([usage(1, 0x30)], 16)] }],
+        outputReports: [],
+        featureReports: []
+      }],
+      productName: 'Named Save Wheel',
+      vendorId: 0x1301,
+      productId: 0x1401,
+      opened: false,
+      oninputreport: null,
+      async open() { this.opened = true; },
+      async close() { this.opened = false; },
+      async sendReport() {}
+    };
+    await manager.connect(fake);
+    await new Promise(resolve => setTimeout(resolve, 40));
+    const panel = document.querySelector('webhid-config-panel');
+    const name = panel.shadowRoot.querySelector('[data-role="name"]');
+    name.value = 'My Named Setup';
+    name.dispatchEvent(new Event('input', { bubbles: true }));
+    await new Promise(resolve => setTimeout(resolve, 700));
+    const beforeSave = localStorage.getItem('webhid-wheel:v3:profiles');
+    panel.shadowRoot.querySelector('[data-action="save"]').click();
+    await new Promise(resolve => setTimeout(resolve, 60));
+    const raw = localStorage.getItem('webhid-wheel:v3:profiles');
+    const store = raw ? JSON.parse(raw) : null;
+    return {
+      beforeSave,
+      active: store?.activeProfile,
+      select: panel.shadowRoot.querySelector('[data-role="profile-select"]').value
+    };
+  });
+  expect(result.beforeSave).toBeNull();
+  expect(result.active).toBe('My Named Setup');
+  expect(result.select).toBe('My Named Setup');
+});
+
+test('loading a profile replaces the device list with its devices', async ({ page }) => {
+  await page.goto('/');
+  const result = await page.evaluate(async () => {
+    const manager = window.__webhidDemo.manager;
+    const usage = (page, id) => (page << 16) | id;
+    const item = (usages, reportSize, reportCount = 1) => ({ usages, reportSize, reportCount, logicalMinimum: 0, logicalMaximum: (1 << reportSize) - 1 });
+    const fake = (name, descriptor, vendorId, productId) => ({
+      collections: descriptor,
+      productName: name,
+      vendorId,
+      productId,
+      opened: false,
+      oninputreport: null,
+      async open() { this.opened = true; },
+      async close() { this.opened = false; },
+      async sendReport() {}
+    });
+    const wheel = fake('Replace Wheel', [{
+      usagePage: 1,
+      usage: 4,
+      inputReports: [{ reportId: 1, items: [item([usage(1, 0x30)], 16)] }],
+      outputReports: [],
+      featureReports: []
+    }], 0x1501, 0x1601);
+    const pedals = fake('Replace Pedals', [{
+      usagePage: 1,
+      usage: 5,
+      inputReports: [{ reportId: 2, items: [item([usage(1, 0x32)], 8)] }],
+      outputReports: [],
+      featureReports: []
+    }], 0x1502, 0x1602);
+    await manager.connect(wheel);
+    await manager.connect(pedals);
+    await new Promise(resolve => setTimeout(resolve, 40));
+
+    const profile = manager.toSetup({ profileName: 'Wheel Only' });
+    Object.defineProperty(navigator.hid, 'getDevices', {
+      configurable: true,
+      value: async () => [wheel, pedals]
+    });
+
+    const panel = document.querySelector('webhid-config-panel');
+    const store = {
+      kind: 'webhid-wheel-profile-store',
+      schemaVersion: 2,
+      activeProfile: 'Wheel Only',
+      profiles: [profile]
+    };
+    panel.profiles.saveStore(store);
+    panel._store = store;
+    panel._refreshProfileSelect();
+    await panel._selectProfile('Wheel Only');
+    await new Promise(resolve => setTimeout(resolve, 80));
+
+    const picker = panel.shadowRoot.querySelector('webhid-device-picker');
+    return {
+      connected: manager.sessionList.filter(entry => entry.session && entry.session.isConnected).map(entry => entry.name),
+      list: picker.shadowRoot.querySelector('[data-role="list"]').textContent
+    };
+  });
+  expect(result.connected).toEqual(['Replace Wheel']);
+  expect(result.list).toContain('Replace Wheel');
+  expect(result.list).not.toContain('Replace Pedals');
+});
+
+test('an active profile limits restore to its devices after reload', async ({ page }) => {
+  await page.addInitScript(() => {
+    const usage = (page, id) => (page << 16) | id;
+    const item = (usages, reportSize, reportCount = 1) => ({ usages, reportSize, reportCount, logicalMinimum: 0, logicalMaximum: (1 << reportSize) - 1 });
+    const base = (name, descriptor, vendorId, productId) => ({
+      collections: descriptor,
+      productName: name,
+      vendorId,
+      productId,
+      opened: false,
+      oninputreport: null,
+      async open() { this.opened = true; },
+      async close() { this.opened = false; },
+      async sendReport() {}
+    });
+    Object.defineProperty(navigator, 'hid', {
+      configurable: true,
+      value: {
+        getDevices: async () => [
+          base('Profile Wheel', [{
+            usagePage: 1,
+            usage: 4,
+            inputReports: [{ reportId: 1, items: [item([usage(1, 0x30)], 16)] }],
+            outputReports: [],
+            featureReports: []
+          }], 0x1701, 0x1801),
+          base('Profile Pedals', [{
+            usagePage: 1,
+            usage: 5,
+            inputReports: [{ reportId: 2, items: [item([usage(1, 0x32)], 8)] }],
+            outputReports: [],
+            featureReports: []
+          }], 0x1702, 0x1802)
+        ],
+        requestDevice: async () => [],
+        addEventListener() {},
+        removeEventListener() {}
+      }
+    });
+  });
+
+  await page.goto('/');
+  await page.evaluate(() => {
+    const profile = {
+      kind: 'webhid-wheel-profile',
+      schemaVersion: 2,
+      profileName: 'Only Wheel',
+      devices: [{
+        alias: 'd1',
+        driver: 'wheel',
+        hardware: { vendorId: 0x1701, productId: 0x1801, productName: 'Profile Wheel', signature: null }
+      }],
+      settings: {
+        steering: { device: 'd1', deadzone: 0, saturation: 1, maxRotation: 900, invert: false },
+        ffb: { device: 'd1', gain: 0.25, invert: false },
+        axes: {},
+        buttons: {}
+      },
+      metadata: {}
+    };
+    localStorage.setItem('webhid-wheel:v3:profiles', JSON.stringify({
+      kind: 'webhid-wheel-profile-store',
+      schemaVersion: 2,
+      activeProfile: 'Only Wheel',
+      profiles: [profile]
+    }));
+  });
+  await page.reload();
+  await page.waitForTimeout(250);
+  const result = await page.evaluate(() => {
+    const manager = window.__webhidDemo.manager;
+    const picker = document.querySelector('webhid-config-panel').shadowRoot.querySelector('webhid-device-picker');
+    return {
+      connected: manager.sessionList.filter(entry => entry.session && entry.session.isConnected).map(entry => entry.name),
+      list: picker.shadowRoot.querySelector('[data-role="list"]').textContent
+    };
+  });
+  expect(result.connected).toEqual(['Profile Wheel']);
+  expect(result.list).toContain('Profile Wheel');
+  expect(result.list).not.toContain('Profile Pedals');
+});
+
+test('a profile device that is offline remains listed after reload', async ({ page }) => {
+  await page.addInitScript(() => {
+    const usage = (page, id) => (page << 16) | id;
+    const item = (usages, reportSize, reportCount = 1) => ({ usages, reportSize, reportCount, logicalMinimum: 0, logicalMaximum: (1 << reportSize) - 1 });
+    const makeDevice = () => ({
+      collections: [{
+        usagePage: 1,
+        usage: 4,
+        inputReports: [{ reportId: 1, items: [item([usage(1, 0x30)], 16)] }],
+        outputReports: [],
+        featureReports: []
+      }],
+      productName: 'Offline Profile Wheel',
+      vendorId: 0x2101,
+      productId: 0x2201,
+      opened: false,
+      oninputreport: null,
+      async open() { this.opened = true; },
+      async close() { this.opened = false; },
+      async sendReport() {}
+    });
+    Object.defineProperty(navigator, 'hid', {
+      configurable: true,
+      value: {
+        getDevices: async () => localStorage.getItem('test-offline') === '1' ? [] : [makeDevice()],
+        requestDevice: async () => [],
+        addEventListener() {},
+        removeEventListener() {}
+      }
+    });
+  });
+
+  await page.goto('/');
+  await page.waitForTimeout(150);
+  await page.evaluate(() => {
+    const manager = window.__webhidDemo.manager;
+    const profile = manager.toSetup({ profileName: 'Offline Profile' });
+    localStorage.setItem('webhid-wheel:v3:profiles', JSON.stringify({
+      kind: 'webhid-wheel-profile-store',
+      schemaVersion: 2,
+      activeProfile: profile.profileName,
+      profiles: [profile]
+    }));
+    localStorage.setItem('test-offline', '1');
+  });
+  await page.reload();
+  await page.waitForTimeout(200);
+  const result = await page.evaluate(() => {
+    const picker = document.querySelector('webhid-config-panel').shadowRoot.querySelector('webhid-device-picker');
+    return {
+      list: picker.shadowRoot.querySelector('[data-role="list"]').textContent,
+      pills: [...picker.shadowRoot.querySelectorAll('.cap')].map(pill => pill.textContent),
+      connected: window.__webhidDemo.manager.isConnected,
+      hasConnect: !!picker.shadowRoot.querySelector('[data-action="connect-profile"]')
+    };
+  });
+  expect(result.list).toContain('Offline Profile Wheel');
+  expect(result.list).toContain('offline');
+  expect(result.pills).toContain('offline');
+  expect(result.connected).toBe(false);
+  expect(result.hasConnect).toBe(true);
+});
+
+test('removing a device does not change the stored profile until Save', async ({ page }) => {
+  await page.addInitScript(() => {
+    const usage = (page, id) => (page << 16) | id;
+    const item = (usages, reportSize, reportCount = 1) => ({ usages, reportSize, reportCount, logicalMinimum: 0, logicalMaximum: (1 << reportSize) - 1 });
+    const make = (name, descriptor, vendorId, productId) => ({
+      collections: descriptor,
+      productName: name,
+      vendorId,
+      productId,
+      opened: false,
+      oninputreport: null,
+      async open() { this.opened = true; },
+      async close() { this.opened = false; },
+      async sendReport() {}
+    });
+    Object.defineProperty(navigator, 'hid', {
+      configurable: true,
+      value: {
+        getDevices: async () => [
+          make('Keep Wheel', [{
+            usagePage: 1,
+            usage: 4,
+            inputReports: [{ reportId: 1, items: [item([usage(1, 0x30)], 16)] }],
+            outputReports: [],
+            featureReports: []
+          }], 0x2301, 0x2401),
+          make('Remove Pedals', [{
+            usagePage: 1,
+            usage: 5,
+            inputReports: [{ reportId: 2, items: [item([usage(1, 0x32)], 8)] }],
+            outputReports: [],
+            featureReports: []
+          }], 0x2302, 0x2402)
+        ],
+        requestDevice: async () => [],
+        addEventListener() {},
+        removeEventListener() {}
+      }
+    });
+  });
+
+  await page.goto('/');
+  await page.waitForTimeout(150);
+  await page.evaluate(() => {
+    const profile = {
+      kind: 'webhid-wheel-profile',
+      schemaVersion: 2,
+      profileName: 'Remove Profile',
+      devices: [
+        { alias: 'd1', driver: 'wheel', hardware: { vendorId: 0x2301, productId: 0x2401, productName: 'Keep Wheel', signature: null } },
+        { alias: 'd2', driver: 'generic', hardware: { vendorId: 0x2302, productId: 0x2402, productName: 'Remove Pedals', signature: null } }
+      ],
+      settings: {
+        steering: { device: 'd1', deadzone: 0, saturation: 1, maxRotation: 900, invert: false },
+        ffb: { device: 'd1', gain: 0.25, invert: false },
+        axes: { throttle: { device: 'd2', source: 'axis', index: 0 } },
+        buttons: {}
+      },
+      metadata: {}
+    };
+    localStorage.setItem('webhid-wheel:v3:profiles', JSON.stringify({
+      kind: 'webhid-wheel-profile-store',
+      schemaVersion: 2,
+      activeProfile: profile.profileName,
+      profiles: [profile]
+    }));
+  });
+  await page.reload();
+  await page.waitForTimeout(200);
+
+  const beforeSave = await page.evaluate(async () => {
+    const picker = document.querySelector('webhid-config-panel').shadowRoot.querySelector('webhid-device-picker');
+    const row = [...picker.shadowRoot.querySelectorAll('[data-select]')].find(item => item.textContent.includes('Remove Pedals'));
+    row.querySelector('[data-action="remove-session"]').click();
+    await new Promise(resolve => setTimeout(resolve, 150));
+    return {
+      connected: window.__webhidDemo.manager.sessionList.filter(entry => entry.session.isConnected).map(entry => entry.name),
+      list: picker.shadowRoot.querySelector('[data-role="list"]').textContent,
+      store: JSON.parse(localStorage.getItem('webhid-wheel:v3:profiles'))
+    };
+  });
+  expect(beforeSave.list).not.toContain('Remove Pedals');
+  expect(beforeSave.store.profiles[0].devices.length).toBe(2);
+
+  const afterSave = await page.evaluate(async () => {
+    const panel = document.querySelector('webhid-config-panel');
+    panel.shadowRoot.querySelector('[data-action="save"]').click();
+    await new Promise(resolve => setTimeout(resolve, 100));
+    return JSON.parse(localStorage.getItem('webhid-wheel:v3:profiles'));
+  });
+  expect(afterSave.profiles[0].devices.length).toBe(1);
+  expect(afterSave.profiles[0].devices[0].hardware.productName).toBe('Keep Wheel');
+  expect(afterSave.profiles[0].settings.axes.throttle).toBeUndefined();
+});
+
+test('Save keeps profile devices that are currently offline', async ({ page }) => {
+  await page.addInitScript(() => {
+    const usage = (page, id) => (page << 16) | id;
+    const item = (usages, reportSize, reportCount = 1) => ({ usages, reportSize, reportCount, logicalMinimum: 0, logicalMaximum: (1 << reportSize) - 1 });
+    const wheel = {
+      collections: [{
+        usagePage: 1,
+        usage: 4,
+        inputReports: [{ reportId: 1, items: [item([usage(1, 0x30)], 16)] }],
+        outputReports: [],
+        featureReports: []
+      }],
+      productName: 'Saved Wheel',
+      vendorId: 0x2501,
+      productId: 0x2601,
+      opened: false,
+      oninputreport: null,
+      async open() { this.opened = true; },
+      async close() { this.opened = false; },
+      async sendReport() {}
+    };
+    Object.defineProperty(navigator, 'hid', {
+      configurable: true,
+      value: {
+        getDevices: async () => [wheel],
+        requestDevice: async () => [],
+        addEventListener() {},
+        removeEventListener() {}
+      }
+    });
+  });
+
+  await page.goto('/');
+  await page.evaluate(() => {
+    const profile = {
+      kind: 'webhid-wheel-profile',
+      schemaVersion: 2,
+      profileName: 'Two Device Profile',
+      devices: [
+        { alias: 'd1', driver: 'wheel', hardware: { vendorId: 0x2501, productId: 0x2601, productName: 'Saved Wheel', signature: null } },
+        { alias: 'd2', driver: 'generic', hardware: { vendorId: 0x2502, productId: 0x2602, productName: 'Saved Pedals', signature: null } }
+      ],
+      settings: {
+        steering: { device: 'd1', deadzone: 0, saturation: 1, maxRotation: 900, invert: false },
+        ffb: { device: 'd1', gain: 0.25, invert: false },
+        axes: { throttle: { device: 'd2', source: 'axis', index: 0 } },
+        buttons: {}
+      },
+      metadata: {}
+    };
+    localStorage.setItem('webhid-wheel:v3:profiles', JSON.stringify({
+      kind: 'webhid-wheel-profile-store',
+      schemaVersion: 2,
+      activeProfile: profile.profileName,
+      profiles: [profile]
+    }));
+  });
+  await page.reload();
+  await page.waitForTimeout(200);
+  const result = await page.evaluate(async () => {
+    const panel = document.querySelector('webhid-config-panel');
+    panel.shadowRoot.querySelector('[data-action="save"]').click();
+    await new Promise(resolve => setTimeout(resolve, 80));
+    const store = JSON.parse(localStorage.getItem('webhid-wheel:v3:profiles'));
+    return {
+      devices: store.profiles[0].devices.map(device => device.hardware.productName),
+      list: panel.shadowRoot.querySelector('webhid-device-picker').shadowRoot.querySelector('[data-role="list"]').textContent
+    };
+  });
+  expect(result.devices).toEqual(expect.arrayContaining(['Saved Wheel', 'Saved Pedals']));
+  expect(result.devices.length).toBe(2);
+  expect(result.list).toContain('Saved Pedals');
+  expect(result.list).toContain('offline');
+});
+
+test('delete removes the active profile from storage', async ({ page }) => {
+  await page.goto('/');
+  await page.evaluate(() => {
+    const profile = {
+      kind: 'webhid-wheel-profile',
+      schemaVersion: 2,
+      profileName: 'Delete Me',
+      devices: [{
+        alias: 'd1',
+        driver: 'wheel',
+        hardware: { vendorId: 0x3101, productId: 0x3201, productName: 'Delete Wheel', signature: null }
+      }],
+      settings: {
+        steering: { device: 'd1', deadzone: 0, saturation: 1, maxRotation: 900, invert: false },
+        ffb: { device: 'd1', gain: 0.25, invert: false },
+        axes: {},
+        buttons: {}
+      },
+      metadata: {}
+    };
+    localStorage.setItem('webhid-wheel:v3:profiles', JSON.stringify({
+      kind: 'webhid-wheel-profile-store',
+      schemaVersion: 2,
+      activeProfile: profile.profileName,
+      profiles: [profile]
+    }));
+  });
+  await page.reload();
+  await page.waitForTimeout(150);
+  const result = await page.evaluate(async () => {
+    const panel = document.querySelector('webhid-config-panel');
+    const selectBefore = panel.shadowRoot.querySelector('[data-role="profile-select"]').value;
+    panel.shadowRoot.querySelector('[data-action="delete-profile"]').click();
+    await new Promise(resolve => setTimeout(resolve, 80));
+    return {
+      selectBefore,
+      store: JSON.parse(localStorage.getItem('webhid-wheel:v3:profiles')),
+      selectAfter: panel.shadowRoot.querySelector('[data-role="profile-select"]').value,
+      deleteDisabled: panel.shadowRoot.querySelector('[data-action="delete-profile"]').disabled
+    };
+  });
+  expect(result.selectBefore).toBe('Delete Me');
+  expect(result.store.profiles.length).toBe(0);
+  expect(result.store.activeProfile).toBeNull();
+  expect(result.selectAfter).toBe('');
+  expect(result.deleteDisabled).toBe(true);
+});
+
+test('delete follows save and clearing the selected profile clears the name', async ({ page }) => {
+  await page.goto('/');
+  await page.evaluate(() => {
+    const profile = {
+      kind: 'webhid-wheel-profile',
+      schemaVersion: 2,
+      profileName: 'Order Profile',
+      devices: [{
+        alias: 'd1',
+        driver: 'wheel',
+        hardware: { vendorId: 0x4101, productId: 0x4201, productName: 'Order Wheel', signature: null }
+      }],
+      settings: {
+        steering: { device: 'd1', deadzone: 0, saturation: 1, maxRotation: 900, invert: false },
+        ffb: { device: 'd1', gain: 0.25, invert: false },
+        axes: {},
+        buttons: {}
+      },
+      metadata: {}
+    };
+    localStorage.setItem('webhid-wheel:v3:profiles', JSON.stringify({
+      kind: 'webhid-wheel-profile-store',
+      schemaVersion: 2,
+      activeProfile: profile.profileName,
+      profiles: [profile]
+    }));
+  });
+  await page.reload();
+  await page.waitForTimeout(150);
+  const result = await page.evaluate(async () => {
+    const panel = document.querySelector('webhid-config-panel');
+    const root = panel.shadowRoot;
+    const buttons = [...root.querySelectorAll('.profiles .actions button')].map(button => button.textContent.trim());
+    const name = root.querySelector('[data-role="name"]');
+    const select = root.querySelector('[data-role="profile-select"]');
+    const selectedName = name.value;
+    name.value = 'Typed But Unsaved';
+    select.value = '';
+    select.dispatchEvent(new Event('change', { bubbles: true }));
+    await new Promise(resolve => setTimeout(resolve, 40));
+    return { buttons, selectedName, clearedName: name.value };
+  });
+  expect(result.buttons).toEqual(['Save', 'Delete', 'Export', 'Import']);
+  expect(result.selectedName).toBe('Order Profile');
+  expect(result.clearedName).toBe('');
 });

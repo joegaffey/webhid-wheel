@@ -1,8 +1,10 @@
-import { WheelManager } from './src/core/index.js';
+import { WheelManager, deviceSignature } from './src/core/index.js';
 import './src/ui/index.js';
 
 const STORAGE_KEY = 'webhid-wheel:v3:profiles';
+const DISMISSED_KEY = 'webhid-wheel:dismissed:v1';
 const manager = new WheelManager();
+const dismissed = new Set(loadDismissed());
 
 const els = {
   panel: document.querySelector('#configPanel'),
@@ -38,15 +40,63 @@ function hex(value, width = 4) {
   return value.toString(16).padStart(width, '0');
 }
 
+function loadDismissed() {
+  try {
+    const value = JSON.parse(localStorage.getItem(DISMISSED_KEY) || '[]');
+    return Array.isArray(value) ? value.filter(item => typeof item === 'string') : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveDismissed() {
+  try {
+    localStorage.setItem(DISMISSED_KEY, JSON.stringify([...dismissed]));
+  } catch {
+    // Storage may be unavailable in private or embedded contexts.
+  }
+}
+
+function sessionSignature(entry) {
+  if (!entry) return null;
+  if (entry.hardware && entry.hardware.signature) return entry.hardware.signature;
+  if (entry.device) {
+    try { return deviceSignature(entry.device); } catch { return null; }
+  }
+  return null;
+}
+
+function dismissHardware(hardware) {
+  if (!hardware || !hardware.signature) return;
+  dismissed.add(hardware.signature);
+  saveDismissed();
+}
+
+function undismissSession(entry) {
+  const signature = sessionSignature(entry);
+  if (!signature || !dismissed.has(signature)) return;
+  dismissed.delete(signature);
+  saveDismissed();
+}
+
 function looksLikeInput(device) {
   return (device && device.collections || []).some(collection =>
-    (collection.usagePage === 0x01 && [0x04, 0x05, 0x08].includes(collection.usage)) ||
-    collection.usagePage === 0x02
+    (collection.inputReports || []).length > 0 ||
+    (collection.outputReports || []).length > 0 ||
+    (collection.featureReports || []).length > 0
   );
 }
 
 function sessionForDevice(device) {
   return manager.sessionList.find(entry => entry.device === device) || null;
+}
+
+function loadProfileStore() {
+  try {
+    return els.panel.profiles ? els.panel.profiles.loadStore() : null;
+  } catch {
+    return null;
+  }
 }
 
 async function restoreGrantedDevices() {
@@ -60,7 +110,29 @@ async function restoreGrantedDevices() {
     return;
   }
   for (const device of devices) {
+    try {
+      if (!device.signature) device.signature = deviceSignature(device);
+    } catch { /* ignore */ }
+  }
+  const store = loadProfileStore();
+  const active = store && store.activeProfile
+    ? store.profiles.find(profile => profile.profileName === store.activeProfile)
+    : null;
+  if (active) {
+    try {
+      const result = els.panel.profiles.match(active, devices);
+      devices = Object.values(result.matches);
+    } catch {
+      devices = [];
+    }
+  }
+  for (const device of devices) {
     if (sessionForDevice(device)) continue;
+    let signature = device.signature || null;
+    try {
+      if (!signature) signature = deviceSignature(device);
+    } catch { /* ignore */ }
+    if (signature && dismissed.has(signature)) continue;
     try {
       await manager.connect(device);
     } catch {
@@ -114,7 +186,7 @@ function updateWheelVisual() {
     els.ffbHint.textContent = `${target.name} · force output`;
     els.applyForce.disabled = false;
   } else {
-    els.ffbHint.textContent = 'Connect a force-feedback device and select a force output.';
+    els.ffbHint.textContent = 'Add a force-feedback device and select a force output.';
     els.applyForce.disabled = true;
   }
 }
@@ -180,9 +252,7 @@ function serializeCollections(device) {
 }
 
 function buildExport() {
-  const store = (() => {
-    try { return els.panel.profiles ? els.panel.profiles.loadStore() : null; } catch { return null; }
-  })();
+  const store = loadProfileStore();
   return {
     kind: 'webhid-device-capture',
     schemaVersion: 3,
@@ -260,7 +330,8 @@ els.stopFfb.addEventListener('click', async () => {
 window.__webhidDemo = { manager, panel: els.panel };
 
 manager.on('input', scheduleInputUpdate);
-manager.on('connect', () => {
+manager.on('connect', ({ session }) => {
+  undismissSession(session);
   els.panel.refresh();
   scheduleInputUpdate();
 });
@@ -278,6 +349,9 @@ manager.on('setup-applied', () => {
 els.panel.addEventListener('webhid-error', (event) => {
   const error = event.detail && event.detail.error;
   console.warn('Wheel UI error:', error || 'Unknown error');
+});
+els.panel.addEventListener('webhid-remove-device', (event) => {
+  dismissHardware(event.detail && event.detail.hardware);
 });
 
 if (navigator.hid && typeof navigator.hid.addEventListener === 'function') {

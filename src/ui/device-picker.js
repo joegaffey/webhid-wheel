@@ -8,7 +8,9 @@ export class WebHIDDevicePicker extends WebHIDElement {
     this._hidHandler = () => this.scheduleRefresh();
     this._busy = false;
     this._selectedId = null;
-    this._error = '';
+    this._connectTimer = null;
+    this._profileDevices = [];
+    this._removing = new Set();
   }
 
   set selectedId(value) {
@@ -18,6 +20,15 @@ export class WebHIDDevicePicker extends WebHIDElement {
 
   get selectedId() {
     return this._selectedId;
+  }
+
+  set profileDevices(value) {
+    this._profileDevices = Array.isArray(value) ? value : [];
+    if (this.isConnected) this.refresh();
+  }
+
+  get profileDevices() {
+    return this._profileDevices;
   }
 
   connectedCallback() {
@@ -36,6 +47,10 @@ export class WebHIDDevicePicker extends WebHIDElement {
       hid.removeEventListener('disconnect', this._hidHandler);
     }
     this._unbindManager();
+    if (this._connectTimer) {
+      clearTimeout(this._connectTimer);
+      this._connectTimer = null;
+    }
   }
 
   set manager(value) {
@@ -56,7 +71,6 @@ export class WebHIDDevicePicker extends WebHIDElement {
       this._boundManager.off('connect', this._managerHandler);
       this._boundManager.off('disconnect', this._managerHandler);
       this._boundManager.off('error', this._managerHandler);
-      this._boundManager.off('input', this._managerHandler);
     }
     this._boundManager = null;
   }
@@ -68,7 +82,6 @@ export class WebHIDDevicePicker extends WebHIDElement {
     this._manager.on('connect', this._managerHandler);
     this._manager.on('disconnect', this._managerHandler);
     this._manager.on('error', this._managerHandler);
-    this._manager.on('input', this._managerHandler);
     this._boundManager = this._manager;
   }
 
@@ -77,12 +90,14 @@ export class WebHIDDevicePicker extends WebHIDElement {
       .head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 6px; }
       .device-name { color: var(--wheel-fg-color, #e6e8eb); }
       .device-id { color: var(--wheel-muted-color, #8f9bab); font-size: 10px; }
-      .caps { display: flex; gap: 4px; flex-wrap: wrap; justify-content: flex-end; }
-      .cap { font-size: 9px; border: 1px solid var(--wheel-border-color, #2a303a); border-radius: 999px; padding: 1px 5px; color: var(--wheel-muted-color, #8f9bab); }
+      .caps { display: flex; gap: 4px; flex-wrap: wrap; justify-content: flex-end; align-items: center; }
+      .cap { display: inline-flex; align-items: center; justify-content: center; line-height: 1; font-size: 9px; border: 1px solid var(--wheel-border-color, #2a303a); border-radius: 999px; padding: 2px 6px; color: var(--wheel-muted-color, #8f9bab); }
       .cap.on { color: var(--wheel-success, #34d399); border-color: currentColor; }
-      .remove { min-height: 22px; padding: 2px 6px; }
+      .cap.off { color: var(--wheel-danger, #f87171); border-color: currentColor; }
+      .remove, .device-action { min-height: 22px; padding: 2px 6px; }
       .list-item { cursor: pointer; }
       .list-item.selected { border-color: var(--wheel-accent, #38bdf8); box-shadow: inset 0 0 0 1px var(--wheel-accent, #38bdf8); }
+      .list-item.offline { cursor: default; }
       slot[name="extra"] { display: block; }
     `;
   }
@@ -94,11 +109,9 @@ export class WebHIDDevicePicker extends WebHIDElement {
           <h3>Devices</h3>
           <span class="badge" data-role="hid-state"></span>
         </div>
-        <div class="status" data-role="status" aria-live="polite"></div>
         <div class="list" data-role="list"></div>
         <div class="actions">
-          <button class="primary" type="button" data-action="connect">Connect device</button>
-          <button type="button" data-action="disconnect-all">Disconnect all</button>
+          <button class="primary" type="button" data-action="connect">Add device</button>
           <button type="button" data-action="copy" title="Copy diagnostic JSON">Copy</button>
           <button type="button" data-action="export" title="Download diagnostic JSON">Export</button>
         </div>
@@ -110,13 +123,14 @@ export class WebHIDDevicePicker extends WebHIDElement {
   bind() {
     const root = this.shadowRoot;
     root.querySelector('[data-action="connect"]').addEventListener('click', () => this._connect());
-    root.querySelector('[data-action="disconnect-all"]').addEventListener('click', () => this._disconnectAll());
     root.querySelector('[data-action="copy"]').addEventListener('click', () => this.emit('webhid-copy', { sessions: this._connectedSessions() }));
     root.querySelector('[data-action="export"]').addEventListener('click', () => this.emit('webhid-export', { sessions: this._connectedSessions() }));
     root.querySelector('[data-role="list"]').addEventListener('click', (event) => {
-      const remove = event.target.closest('[data-remove]');
-      if (remove) {
-        this._disconnect(remove.dataset.remove);
+      const action = event.target.closest('[data-action]');
+      if (action) {
+        event.preventDefault();
+        event.stopPropagation();
+        this._handleAction(action.dataset.action, action.dataset);
         return;
       }
       const row = event.target.closest('[data-select]');
@@ -128,167 +142,216 @@ export class WebHIDDevicePicker extends WebHIDElement {
     });
   }
 
+  _handleAction(action, data) {
+    if (action === 'remove-session') {
+      this._removeSession(data.id);
+    } else if (action === 'connect-profile') {
+      this._connectProfileDevice(data.alias);
+    } else if (action === 'remove-profile') {
+      this._removeProfileDevice(data.alias);
+    }
+  }
+
   async _connect() {
     if (!this.manager || this._busy) return;
     this._busy = true;
-    this._error = '';
     // Call requestDevice from the original gesture task, before touching the DOM.
     const pending = this.manager.connect();
     this.refresh();
+    this._connectTimer = setTimeout(() => {
+      this._connectTimer = null;
+      if (!this._busy) return;
+      this._busy = false;
+      this.refresh();
+      const error = new Error('Device selection timed out.');
+      error.name = 'TimeoutError';
+      this.emit('webhid-error', { error });
+    }, 30000);
     try {
       const session = await pending;
       if (session) {
-        this._error = '';
         this.emit('webhid-connect', { session, device: session.device });
       } else {
-        const authorized = await this._authorizedCount();
-        this._error = authorized
-          ? `No device selected. Chrome has ${authorized} previously authorized HID device${authorized === 1 ? '' : 's'}; try Connect again.`
-          : 'No device selected. Chrome did not offer any HID devices. Connect the wheel directly to this device over USB/OTG and try again. A wheel connected to a PC will not appear here.';
         this.emit('webhid-authorization-required', {
           filters: (this.manager.options && this.manager.options.filters) || []
         });
       }
     } catch (error) {
-      this._error = this._connectErrorMessage(error);
       this.emit('webhid-error', { error });
     } finally {
+      if (this._connectTimer) {
+        clearTimeout(this._connectTimer);
+        this._connectTimer = null;
+      }
       this._busy = false;
       this.refresh();
     }
-  }
-
-  async _authorizedCount() {
-    try {
-      const devices = await navigator.hid.getDevices();
-      return Array.isArray(devices) ? devices.length : 0;
-    } catch {
-      return 0;
-    }
-  }
-
-  _connectErrorMessage(error) {
-    const name = error && error.name;
-    if (name === 'NotAllowedError' || name === 'SecurityError') {
-      return 'Device selection was cancelled or blocked by Chrome. Use HTTPS and connect the device directly to this browser.';
-    }
-    if (name === 'NotSupportedError') {
-      return 'WebHID device selection is not supported in this browser.';
-    }
-    return error && error.message ? error.message : String(error || 'Could not connect the device.');
   }
 
   async _disconnect(id) {
-    if (!this.manager || this._busy) return;
-    this._busy = true;
-    this._error = '';
-    this.refresh();
+    if (!this.manager || !id) return;
     try {
       await this.manager.disconnect(id);
     } catch (error) {
-      this._error = this._connectErrorMessage(error);
       this.emit('webhid-error', { error });
     } finally {
-      this._busy = false;
       this.refresh();
     }
   }
 
-  async _disconnectAll() {
-    if (!this.manager || this._busy) return;
-    this._busy = true;
-    this._error = '';
+  async _removeSession(id) {
+    if (!this.manager) return;
+    const entry = this.manager.sessions.get(id);
+    if (!entry) return;
+    this._removing.add(id);
     this.refresh();
+    this.emit('webhid-remove-device', { session: entry, hardware: entry.hardware });
     try {
-      await this.manager.disconnectAll();
+      await this._disconnect(id);
+    } finally {
+      this._removing.delete(id);
+      this.refresh();
+    }
+  }
+
+  _removeProfileDevice(alias) {
+    const device = this._profileDevices.find(item => item.alias === alias);
+    if (!device) return;
+    this.emit('webhid-remove-device', { hardware: device.hardware, alias });
+  }
+
+  async _connectProfileDevice(alias) {
+    const device = this._profileDevices.find(item => item.alias === alias);
+    if (!device || !this.manager || typeof navigator === 'undefined' || !navigator.hid) return;
+    const hardware = device.hardware;
+    try {
+      const granted = await navigator.hid.getDevices();
+      let match = granted.find(item => hardwareMatches(hardware, item));
+      if (!match) {
+        const filters = [{ vendorId: hardware.vendorId, productId: hardware.productId }];
+        const picked = await navigator.hid.requestDevice({ filters });
+        match = picked[0] || null;
+      }
+      if (match) await this.manager.connect(match);
     } catch (error) {
-      this._error = this._connectErrorMessage(error);
       this.emit('webhid-error', { error });
     } finally {
-      this._busy = false;
       this.refresh();
     }
   }
 
   _connectedSessions() {
     if (!this.manager) return [];
-    return this.manager.sessionList.filter(entry => entry.session && entry.session.isConnected);
+    return this.manager.sessionList.filter(entry =>
+      entry.session && entry.session.isConnected && !this._removing.has(entry.id)
+    );
+  }
+
+  _sessionForHardware(hardware) {
+    return this._connectedSessions().find(entry => hardwareMatches(hardware, entry.hardware));
+  }
+
+  _meta(hardware, driver) {
+    const signature = hardware && hardware.signature ? `#${hardware.signature.slice(0, 6)}` : null;
+    return [
+      `${hex(hardware && hardware.vendorId)}:${hex(hardware && hardware.productId)}`,
+      driver === 'wheel' ? 'wheel' : 'HID device',
+      signature
+    ].filter(Boolean).join(' · ');
+  }
+
+  _sessionRow(entry) {
+    const caps = entry.capabilities || {};
+    const pills = [];
+    if (caps.steering) pills.push('steering');
+    if (caps.ffb) pills.push('FFB');
+    if (caps.axes || caps.buttons || caps.hats) pills.push('input');
+    return `
+      <div class="list-item${entry.id === this._selectedId ? ' selected' : ''}" data-select="${escapeHtml(entry.id)}">
+        <div>
+          <div class="device-name">${escapeHtml(entry.name || entry.id)}</div>
+          <div class="device-id">${escapeHtml(this._meta(entry.hardware, entry.driver))}</div>
+        </div>
+        <div class="caps">
+          ${pills.map(label => `<span class="cap">${label}</span>`).join('')}
+          <button class="remove" type="button" data-action="remove-session" data-id="${escapeHtml(entry.id)}">Remove</button>
+        </div>
+      </div>
+    `;
+  }
+
+  _profileRow(device) {
+    return `
+      <div class="list-item offline">
+        <div>
+          <div class="device-name">${escapeHtml(device.hardware.productName || 'Offline device')}</div>
+          <div class="device-id">${escapeHtml(this._meta(device.hardware, device.driver))}</div>
+        </div>
+        <div class="caps">
+          <span class="cap off">offline</span>
+          <button class="device-action" type="button" data-action="connect-profile" data-alias="${escapeHtml(device.alias)}">Add</button>
+          <button class="remove" type="button" data-action="remove-profile" data-alias="${escapeHtml(device.alias)}">Remove</button>
+        </div>
+      </div>
+    `;
   }
 
   refresh() {
-    if (!this.shadowRoot || !this.shadowRoot.querySelector('[data-role="status"]')) return;
+    if (!this.shadowRoot || !this.shadowRoot.querySelector('[data-role="list"]')) return;
     this._bindManager();
 
     const hid = typeof navigator !== 'undefined' ? navigator.hid : null;
     const available = !!hid;
     const canRequest = !!(hid && typeof hid.requestDevice === 'function');
     const list = this.shadowRoot.querySelector('[data-role="list"]');
-    const status = this.shadowRoot.querySelector('[data-role="status"]');
     const state = this.shadowRoot.querySelector('[data-role="hid-state"]');
     const connect = this.shadowRoot.querySelector('[data-action="connect"]');
-    const disconnectAll = this.shadowRoot.querySelector('[data-action="disconnect-all"]');
     const copy = this.shadowRoot.querySelector('[data-action="copy"]');
     const exportButton = this.shadowRoot.querySelector('[data-action="export"]');
     const sessions = this._connectedSessions();
-    const connected = sessions;
+    const usedSessions = new Set();
 
     if (!this._selectedId || !sessions.some(entry => entry.id === this._selectedId)) {
       this._selectedId = sessions[0] ? sessions[0].id : null;
     }
-    if (connected.length) this._error = '';
 
     state.textContent = available ? 'WebHID available' : 'WebHID unavailable';
-    if (!this.manager) {
-      status.textContent = 'No wheel manager configured.';
-      status.className = 'status error';
-    } else if (!available) {
-      status.textContent = 'WebHID is not available in this browser. Use a Chromium browser with WebHID enabled (desktop Chrome/Edge or Chrome Beta) over HTTPS; keyboard, gamepad and touch input continue in the host app.';
-      status.className = 'status error';
-    } else if (!canRequest) {
-      status.textContent = 'WebHID is available, but this browser build does not expose device selection (requestDevice).';
-      status.className = 'status error';
-    } else if (this._error) {
-      status.textContent = this._error;
-      status.className = 'status error';
-    } else if (connected.length) {
-      status.textContent = `${connected.length} device${connected.length === 1 ? '' : 's'} connected.`;
-      status.className = 'status ready';
-    } else {
-      status.textContent = 'No devices connected. Connect from a user gesture to grant WebHID permission.';
-      status.className = 'status';
-    }
-
     connect.disabled = !this.manager || !canRequest || this._busy;
     connect.title = !available
       ? 'WebHID is not available in this browser build'
-      : (canRequest ? 'Connect a WebHID device' : 'Device selection is not available in this browser build');
-    connect.textContent = this._busy ? 'Connecting…' : 'Connect device';
-    disconnectAll.disabled = !this.manager || !connected.length || this._busy;
+      : (canRequest ? 'Add a WebHID device' : 'Device selection is not available in this browser build');
+    connect.textContent = this._busy ? 'Adding…' : 'Add device';
     copy.disabled = !sessions.length || this._busy;
     exportButton.disabled = !sessions.length || this._busy;
 
-    list.innerHTML = sessions.length
-      ? sessions.map(entry => {
-        const caps = entry.capabilities || {};
-        const isConnected = !!(entry.session && entry.session.isConnected);
-        return `
-          <div class="list-item${entry.id === this._selectedId ? ' selected' : ''}" data-select="${escapeHtml(entry.id)}">
-            <div>
-              <div class="device-name">${escapeHtml(entry.name || entry.id)}</div>
-              <div class="device-id">${escapeHtml(entry.id)} · ${escapeHtml(entry.driver)}</div>
-            </div>
-            <div class="caps">
-              <span class="cap ${isConnected ? 'on' : ''}">${isConnected ? 'on' : 'off'}</span>
-              <span class="cap ${caps.steering ? 'on' : ''}">steering</span>
-              <span class="cap ${caps.ffb ? 'on' : ''}">FFB</span>
-              <span class="cap ${caps.axes || caps.buttons || caps.hats ? 'on' : ''}">input</span>
-              <button class="remove" type="button" data-remove="${escapeHtml(entry.id)}"${isConnected ? '' : ' disabled'}>Remove</button>
-            </div>
-          </div>
-        `;
-      }).join('')
-      : '<div class="muted">No devices yet.</div>';
+    const rows = [];
+    for (const device of this._profileDevices) {
+      const session = this._sessionForHardware(device.hardware);
+      if (session) {
+        usedSessions.add(session.id);
+        rows.push(this._sessionRow(session));
+      } else {
+        rows.push(this._profileRow(device));
+      }
+    }
+    for (const entry of sessions) {
+      if (usedSessions.has(entry.id)) continue;
+      rows.push(this._sessionRow(entry));
+    }
+
+    list.innerHTML = rows.length ? rows.join('') : '<div class="muted">No devices added</div>';
   }
+}
+
+function hardwareMatches(hardware, entryHardware) {
+  if (!hardware || !entryHardware) return false;
+  if (hardware.vendorId !== entryHardware.vendorId || hardware.productId !== entryHardware.productId) return false;
+  return !hardware.signature || hardware.signature === entryHardware.signature;
+}
+
+function hex(value, width = 4) {
+  if (value === undefined || value === null) return '----';
+  return '0x' + Number(value).toString(16).toUpperCase().padStart(width, '0');
 }
 
 function escapeHtml(value) {

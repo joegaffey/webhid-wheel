@@ -1,6 +1,6 @@
 # Package, setup profiles and Lapster integration plan
 
-Status: implemented through 0.4.7 on `feature/core-ui-package` (2026-10-29), pending dev
+Status: implemented through 0.4.26 on `feature/core-ui-package` (2026-10-29), pending dev
 verification. Supersedes the downloaded `webhid_integration_task_spec.md`. This
 document is the working contract for splitting `webhid-wheel` into a core
 package and a UI package, adding portable setup profiles, and replacing
@@ -130,7 +130,7 @@ Keep `webhid-wheel.d.ts` as the matching compatibility type shim, re-exporting
 ```json
 {
   "name": "webhid-wheel",
-  "version": "0.4.7",
+  "version": "0.4.26",
   "type": "module",
   "main": "./dist/core/index.js",
   "module": "./dist/core/index.js",
@@ -179,7 +179,7 @@ Requirements:
 - `prepare` must build `dist` so GitHub installs and `file:` installs work.
 - `npm pack` must be tested; a published tarball without `dist` is a release
   blocker.
-- The package version becomes `0.4.7` because the package gains subpath exports
+- The package version becomes `0.4.26` because the package gains subpath exports
   while retaining the old API.
 - Add `@playwright/test` as a devDependency for the browser component tests.
   Runtime dependencies stay at zero.
@@ -419,19 +419,20 @@ No `navigator.hid`, `document` or `localStorage` access at module top level.
 
 | Element | Purpose | Properties | Events |
 | --- | --- | --- | --- |
-| `<webhid-device-picker>` | Connect one device, list sessions, disconnect, hot-plug, authorization | `manager`, `filters` | `webhid-connect`, `webhid-copy`, `webhid-export`, `webhid-authorization-required`, `webhid-error` |
+| `<webhid-device-picker>` | Add one device, list sessions, remove, hot-plug, authorization | `manager`, `filters` | `webhid-connect`, `webhid-copy`, `webhid-export`, `webhid-authorization-required`, `webhid-error` |
 | `<webhid-steering-config>` | Steering source, force output, deadzone, saturation, rotation, invert, FFB gain | `manager`, `settings` | `webhid-change` |
 | `<webhid-axis-mapper>` | Throttle, brake, clutch, handbrake assignment and telemetry, bound to a session | `manager`, `mapping` | `webhid-capture`, `webhid-change` |
 | `<webhid-button-mapper>` | Shift, paddle, UI action mapping, bound to a session | `manager`, `mapping` | `webhid-capture`, `webhid-change` |
-| `<webhid-config-panel>` | Composite panel and profile import/export; optional tabs | `manager`, `profiles`, `storageKey`, `tabbed`, `activeTab` | `webhid-ready`, `webhid-tab-change`, `webhid-profile-change`, `webhid-error` |
+| `<webhid-config-panel>` | Composite panel and profile import/export/delete; optional tabs | `manager`, `profiles`, `storageKey`, `tabbed`, `activeTab` | `webhid-ready`, `webhid-tab-change`, `webhid-profile-change`, `webhid-error` |
 
 All events are `bubbles: true` and `composed: true`. Event `detail` objects are
 plain data except `webhid-ready`, which includes the manager.
 
 `<webhid-device-picker>` subscribes to `navigator.hid` `connect` and `disconnect`
-events and updates status. It shows connected sessions only; disconnected
-sessions stay internal so mappings and hardware can be reused when the device
-reconnects. It never shows a synthetic device; each row is a real session.
+events and updates status. It shows active sessions plus profile device slots that
+are currently offline. Remove disconnects and removes the device from the working
+list; the stored profile changes only when Save is clicked. It never shows a
+synthetic device.
 
 `<webhid-config-panel>` owns the default `WheelManager` only when a `manager`
 property is not supplied by the app. It must accept an app-owned manager so
@@ -476,8 +477,8 @@ in the original single-scroll order.
 - Every control has a visible label and an accessible name.
 - Status uses `aria-live="polite"`.
 - Buttons are keyboard reachable; focus is visible.
-- Disconnected, unsupported WebHID, and authorization-needed states are
-  explicit; the panel never renders a dead Connect button without explanation.
+- Offline, unsupported WebHID, and authorization-needed states are explicit; the
+  panel never renders a dead Add button without explanation.
 - If WebHID is unavailable, the panel renders an unavailable state and Lapster's
   keyboard/touch input continues to work.
 
@@ -511,7 +512,7 @@ dependency must live in `web/package.json`.
 For CI and release:
 
 - Pin a commit or tag, for example
-  `github:joegaffey/webhid-wheel#<sha>` or a published `0.4.7`.
+  `github:joegaffey/webhid-wheel#<sha>` or a published `0.4.26`.
 - Record the revision in Lapster's `THIRD_PARTY_NOTICES.md`.
 - Ensure `dist` is built before Lapster's esbuild run. Prefer the package
   `prepare` script; if the CI install mode skips it, run `npm --prefix
@@ -550,7 +551,7 @@ its manager to the panel; the components must not know about Lapster telemetry.
 - Move the existing feel sliders into the `extra-settings` slot.
 - Keep the existing panel behind a feature flag (`?wheelui=1` or dev channel)
   until hardware and Playwright checks pass, then make it the default.
-- Preserve Connect, Disconnect, strength, invert, deadzone, test force, stop,
+- Preserve Add, Remove, strength, invert, deadzone, test force, stop,
   status and reset behavior.
 
 ### 10.5 Storage
@@ -673,7 +674,7 @@ the default.
   reconnect, panel controls.
 - Best-effort C12/FFBeast check if hardware is available.
 - Verify Chromium, WebHID-unavailable fallback, and Lapster's mobile layout.
-- Tag `webhid-wheel@0.4.7`, pin the revision in Lapster, update docs.
+- Tag `webhid-wheel@0.4.26`, pin the revision in Lapster, update docs.
 
 Exit criteria: hardware checklist passes; release notes list the new subpath,
 setup profiles and compatibility guarantees.
@@ -710,7 +711,7 @@ setup profiles and compatibility guarantees.
 
 | Risk | Mitigation |
 | --- | --- |
-| Breaking existing consumers | Keep all old exports, root shim, and regression tests; release as 0.4.7 |
+| Breaking existing consumers | Keep all old exports, root shim, and regression tests; release as 0.4.26 |
 | `dist` missing from installs | `prepare` build, tarball test, CI build step before Lapster build |
 | `file:` dependency breaks CI | Use file only for local dev; pin a git commit or tag for CI/release |
 | Stale vendored copy silently returns | Delete vendor directory and add an import check in review |
@@ -773,7 +774,7 @@ after the interface is stable.
 
 - Resolved: the demo now uses the components. Raw capture, export and the wheel
   visual remain demo-shell features.
-- Whether to publish `0.4.7` to npm or use a pinned GitHub commit. Either is
+- Whether to publish `0.4.26` to npm or use a pinned GitHub commit. Either is
   acceptable if Lapster's lockfile and `THIRD_PARTY_NOTICES.md` record it.
 - The first hardware acceptance remains the CAMMUS C5 with optional external
   pedals/buttons; multi-device profile v2 is implemented in the library.

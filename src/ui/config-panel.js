@@ -3,6 +3,7 @@ import { createLocalStorageStore, legacyStorageSnapshot } from './storage.js';
 import {
   SetupProfileManager,
   WheelManager,
+  deviceSignature,
   parseProfile,
   parseStore,
   serializeProfile,
@@ -18,8 +19,8 @@ export class WebHIDConfigPanel extends WebHIDElement {
     this._storageKey = null;
     this._store = null;
     this._pendingProfile = null;
+    this._removedAliases = new Set();
     this._boundManager = null;
-    this._saveTimer = null;
     this._managerHandler = () => this.refresh();
     this._connectHandler = () => this._onConnect();
     this._activeTab = 'wheel';
@@ -62,7 +63,6 @@ export class WebHIDConfigPanel extends WebHIDElement {
 
   disconnectedCallback() {
     this._unbindManager();
-    if (this._saveTimer) clearTimeout(this._saveTimer);
   }
 
   set storageKey(value) {
@@ -203,6 +203,7 @@ export class WebHIDConfigPanel extends WebHIDElement {
           <input data-role="name" type="text" placeholder="Profile name" aria-label="Profile name">
           <select data-role="profile-select" aria-label="Stored setup profiles"></select>
           <button type="button" data-action="save">Save</button>
+          <button type="button" data-action="delete-profile" class="danger">Delete</button>
           <button type="button" data-action="export">Export</button>
           <button type="button" data-action="import">Import</button>
           <input data-role="file" type="file" accept="application/json,.json" hidden>
@@ -266,12 +267,12 @@ export class WebHIDConfigPanel extends WebHIDElement {
     const root = this.shadowRoot;
     root.querySelector('[data-action="save"]').addEventListener('click', () => this._save());
     root.querySelector('[data-action="export"]').addEventListener('click', () => this._export());
+    root.querySelector('[data-action="delete-profile"]').addEventListener('click', () => this._deleteProfile());
     root.querySelector('[data-action="import"]').addEventListener('click', () => root.querySelector('[data-role="file"]').click());
     root.querySelector('[data-role="file"]').addEventListener('change', (event) => this._import(event));
     root.querySelector('[data-role="profile-select"]').addEventListener('change', (event) => this._selectProfile(event.target.value));
-    root.querySelector('[data-role="name"]').addEventListener('change', () => this._scheduleSave());
-    root.addEventListener('webhid-change', () => this._scheduleSave());
     root.addEventListener('webhid-connect', () => this._onConnect());
+    root.addEventListener('webhid-remove-device', (event) => this._removeDevice(event.detail || {}));
     if (this.tabbed) {
       for (const tab of root.querySelectorAll('[role="tab"]')) {
         tab.addEventListener('click', () => this._selectTab(tab.dataset.tab));
@@ -326,6 +327,111 @@ export class WebHIDConfigPanel extends WebHIDElement {
     this.refresh();
   }
 
+  _activeProfile() {
+    if (!this._store || !this._store.activeProfile) return null;
+    return this._store.profiles.find(profile => profile.profileName === this._store.activeProfile) || null;
+  }
+
+  _syncDeviceProfile() {
+    if (!this.shadowRoot) return;
+    const picker = this.shadowRoot.querySelector('webhid-device-picker');
+    const active = this._activeProfile();
+    picker.profileDevices = active
+      ? active.devices.filter(device => !this._removedAliases.has(device.alias))
+      : [];
+  }
+
+  _profileWithoutRemoved(profile) {
+    if (!profile || !this._removedAliases.size) return profile;
+    const devices = profile.devices.filter(device => !this._removedAliases.has(device.alias));
+    if (!devices.length) return null;
+    const firstAlias = devices[0].alias;
+    const settings = profile.settings;
+    const axes = Object.fromEntries(
+      Object.entries(settings.axes).filter(([, entry]) => !this._removedAliases.has(entry.device))
+    );
+    const buttons = Object.fromEntries(
+      Object.entries(settings.buttons).filter(([, entry]) => !this._removedAliases.has(entry.device))
+    );
+    return {
+      ...profile,
+      devices,
+      settings: {
+        steering: {
+          ...settings.steering,
+          device: this._removedAliases.has(settings.steering.device) ? firstAlias : settings.steering.device
+        },
+        ffb: {
+          ...settings.ffb,
+          device: this._removedAliases.has(settings.ffb.device) ? firstAlias : settings.ffb.device
+        },
+        axes,
+        buttons
+      }
+    };
+  }
+
+  async _removeDevice(detail) {
+    const profile = this._activeProfile();
+    if (!profile) {
+      this.refresh();
+      return;
+    }
+    const alias = detail.alias || (profile.devices.find(device =>
+      hardwareMatches(detail.hardware, device.hardware)
+    ) || {}).alias;
+    if (!alias) {
+      this.refresh();
+      return;
+    }
+    this._removedAliases.add(alias);
+    this.refresh();
+  }
+
+  async _loadProfileDevices(profile) {
+    this._removedAliases.clear();
+    if (!this._manager || typeof navigator === 'undefined' || !navigator.hid ||
+        typeof navigator.hid.getDevices !== 'function') return false;
+    let granted;
+    try {
+      granted = await navigator.hid.getDevices();
+    } catch (error) {
+      this._reportError(error);
+      return false;
+    }
+    for (const device of granted) {
+      try {
+        if (!device.signature) device.signature = deviceSignature(device);
+      } catch { /* ignore */ }
+    }
+    const result = this._profiles.match(profile, granted);
+    if (result.status === 'ambiguous') {
+      this._reportError(new Error(`Profile "${profile.profileName}" matches more than one device.`));
+      return false;
+    }
+    const wanted = profile.devices.map(device => device.hardware);
+    const keep = entry => wanted.some(hardware => {
+      if (!entry.hardware) return false;
+      if (entry.hardware.vendorId !== hardware.vendorId || entry.hardware.productId !== hardware.productId) return false;
+      return !hardware.signature || entry.hardware.signature === hardware.signature;
+    });
+    for (const entry of this._manager.sessionList) {
+      if (entry.session && entry.session.isConnected && !keep(entry)) {
+        try { await this._manager.disconnect(entry.id); } catch { /* keep going */ }
+      }
+    }
+    for (const device of Object.values(result.matches)) {
+      try { await this._manager.connect(device); } catch { /* keep going */ }
+    }
+    return true;
+  }
+
+  async _loadProfile(profile) {
+    await this._loadProfileDevices(profile);
+    this._apply(profile);
+    this._refreshChildren();
+  }
+
   _apply(profile) {
     if (!this._manager) return false;
     const devices = this._manager.sessionList
@@ -368,6 +474,7 @@ export class WebHIDConfigPanel extends WebHIDElement {
     if (this._store && this._store.activeProfile) {
       const active = this._store.profiles.find(profile => profile.profileName === this._store.activeProfile);
       if (active) {
+        this._removedAliases.clear();
         this._pendingProfile = active;
         this._apply(active);
       }
@@ -419,11 +526,13 @@ export class WebHIDConfigPanel extends WebHIDElement {
     const existing = this._store && this._store.activeProfile
       ? this._store.profiles.find(profile => profile.profileName === this._store.activeProfile)
       : null;
+    const base = this._profileWithoutRemoved(existing);
     try {
       const first = connected[0];
       return validateProfile(this._manager.toSetup({
         profileName: (nameInput && nameInput.value.trim()) || (existing && existing.profileName) || `${first.name || 'Rig'} setup`,
-        metadata: existing ? existing.metadata : {}
+        metadata: existing ? existing.metadata : {},
+        baseProfile: base || undefined
       }));
     } catch (error) {
       this._reportError(error);
@@ -434,6 +543,7 @@ export class WebHIDConfigPanel extends WebHIDElement {
   _save() {
     const profile = this._currentProfile();
     if (!profile) return;
+    this._removedAliases.clear();
     const profiles = this._store ? this._store.profiles.slice() : [];
     const index = profiles.findIndex(item => item.profileName === profile.profileName);
     if (index >= 0) profiles[index] = profile;
@@ -452,25 +562,49 @@ export class WebHIDConfigPanel extends WebHIDElement {
     }
   }
 
-  _scheduleSave() {
-    if (this._pendingProfile) return;
-    if (this._saveTimer) clearTimeout(this._saveTimer);
-    this._saveTimer = setTimeout(() => {
-      this._saveTimer = null;
-      if (this._store && this._manager &&
-          this._manager.sessionList.some(entry => entry.session && entry.session.isConnected)) this._save();
-    }, 500);
-  }
-
-  _selectProfile(name) {
+  async _selectProfile(name) {
     if (!this._store) return;
+    if (!name) {
+      this._store.activeProfile = null;
+      this._removedAliases.clear();
+      this._pendingProfile = null;
+      try { this._profiles.saveStore(this._store); } catch (error) { this._reportError(error); }
+      const nameInput = this.shadowRoot.querySelector('[data-role="name"]');
+      if (nameInput) nameInput.value = '';
+      this._refreshProfileSelect();
+      this.refresh();
+      return;
+    }
     const profile = this._store.profiles.find(item => item.profileName === name);
     if (!profile) return;
+    this._removedAliases.clear();
     this._store.activeProfile = name;
     try { this._profiles.saveStore(this._store); } catch { /* storage may be unavailable */ }
     this._pendingProfile = profile;
-    this._apply(profile);
+    await this._loadProfile(profile);
     this._refreshProfileSelect();
+  }
+
+  _deleteProfile() {
+    if (!this._store || !this._store.activeProfile) return;
+    const name = this._store.activeProfile;
+    const profiles = this._store.profiles.filter(profile => profile.profileName !== name);
+    this._store = {
+      ...this._store,
+      activeProfile: null,
+      profiles
+    };
+    this._removedAliases.clear();
+    this._pendingProfile = null;
+    try {
+      this._profiles.saveStore(this._store);
+    } catch (error) {
+      this._reportError(error);
+    }
+    const nameInput = this.shadowRoot.querySelector('[data-role="name"]');
+    if (nameInput) nameInput.value = '';
+    this._refreshProfileSelect();
+    this.refresh();
   }
 
   _export() {
@@ -491,8 +625,9 @@ export class WebHIDConfigPanel extends WebHIDElement {
     if (!file) return;
     try {
       const profile = parseProfile(await file.text());
+      this._removedAliases.clear();
       this._pendingProfile = profile;
-      this._apply(profile);
+      await this._loadProfile(profile);
       const profiles = this._store ? this._store.profiles.slice() : [];
       const index = profiles.findIndex(item => item.profileName === profile.profileName);
       if (index >= 0) profiles[index] = profile;
@@ -515,10 +650,17 @@ export class WebHIDConfigPanel extends WebHIDElement {
     const select = this.shadowRoot.querySelector('[data-role="profile-select"]');
     if (!select) return;
     const profiles = this._store ? this._store.profiles : [];
-    select.innerHTML = profiles.length
-      ? profiles.map(profile => `<option value="${escapeAttribute(profile.profileName)}"${this._store.activeProfile === profile.profileName ? ' selected' : ''}>${escapeHtml(profile.profileName)}</option>`).join('')
-      : '<option value="">No stored profiles</option>';
+    if (profiles.length) {
+      select.innerHTML = [
+        `<option value=""${this._store.activeProfile ? '' : ' selected'}>No profile</option>`,
+        ...profiles.map(profile => `<option value="${escapeAttribute(profile.profileName)}"${this._store.activeProfile === profile.profileName ? ' selected' : ''}>${escapeHtml(profile.profileName)}</option>`)
+      ].join('');
+    } else {
+      select.innerHTML = '<option value="">No stored profiles</option>';
+    }
     select.disabled = !profiles.length;
+    const deleteButton = this.shadowRoot.querySelector('[data-action="delete-profile"]');
+    if (deleteButton) deleteButton.disabled = !this._store || !this._store.activeProfile;
     const name = this.shadowRoot.querySelector('[data-role="name"]');
     if (name && !name.value && this._store && this._store.activeProfile) {
       name.value = this._store.activeProfile;
@@ -544,6 +686,7 @@ export class WebHIDConfigPanel extends WebHIDElement {
     this._ensureManager();
     this._ensureProfiles();
     this._syncChildren();
+    this._syncDeviceProfile();
     this._bindManager();
     this._refreshProfileSelect();
     const mode = this.shadowRoot.querySelector('[data-role="mode"]');
@@ -573,4 +716,10 @@ function escapeHtml(value) {
 
 function escapeAttribute(value) {
   return escapeHtml(value);
+}
+
+function hardwareMatches(left, right) {
+  if (!left || !right) return false;
+  if (left.vendorId !== right.vendorId || left.productId !== right.productId) return false;
+  return !left.signature || !right.signature || left.signature === right.signature;
 }

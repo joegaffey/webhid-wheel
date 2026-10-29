@@ -557,7 +557,86 @@ export class WheelManager {
     return normalized;
   }
 
+  _mergeSetup(base, options) {
+    const mapping = this.getMapping();
+    const devices = base.devices.map(device => ({
+      ...device,
+      hardware: { ...device.hardware }
+    }));
+    const aliasForSession = new Map();
+    let nextAlias = devices.length + 1;
+
+    for (const entry of this.sessionList) {
+      let device = devices.find(candidate => {
+        if (!entry.hardware) return false;
+        if (candidate.hardware.vendorId !== entry.hardware.vendorId ||
+            candidate.hardware.productId !== entry.hardware.productId) return false;
+        return !candidate.hardware.signature || candidate.hardware.signature === entry.hardware.signature;
+      });
+      if (!device) {
+        if (!entry.session || !entry.session.isConnected) continue;
+        device = {
+          alias: `d${nextAlias++}`,
+          driver: entry.driver,
+          hardware: { ...entry.hardware }
+        };
+        devices.push(device);
+      }
+      aliasForSession.set(entry.id, device.alias);
+    }
+
+    const aliasFor = id => (id ? aliasForSession.get(id) || null : null);
+    const connectedAliases = new Set();
+    for (const entry of this.sessionList) {
+      if (!entry.session || !entry.session.isConnected) continue;
+      const alias = aliasForSession.get(entry.id);
+      if (alias) connectedAliases.add(alias);
+    }
+    const firstAlias = devices[0] ? devices[0].alias : null;
+
+    const axes = {};
+    for (const [channel, entry] of Object.entries(base.settings.axes)) {
+      if (!connectedAliases.has(entry.device)) axes[channel] = { ...entry };
+    }
+    for (const [channel, entry] of Object.entries(mapping.axes)) {
+      const alias = aliasFor(entry.device);
+      if (alias) axes[channel] = { ...entry, device: alias };
+    }
+
+    const buttons = {};
+    for (const [channel, entry] of Object.entries(base.settings.buttons)) {
+      if (!connectedAliases.has(entry.device)) buttons[channel] = { ...entry };
+    }
+    for (const [channel, entry] of Object.entries(mapping.buttons)) {
+      const alias = aliasFor(entry.device);
+      if (alias) buttons[channel] = { ...entry, device: alias };
+    }
+
+    return {
+      kind: PROFILE_KIND,
+      schemaVersion: PROFILE_SCHEMA_VERSION,
+      profileName: options.profileName || base.profileName,
+      devices,
+      settings: {
+        steering: {
+          ...mapping.steering,
+          device: aliasFor(mapping.steering.device) || base.settings.steering.device || firstAlias
+        },
+        ffb: {
+          ...mapping.ffb,
+          device: aliasFor(mapping.ffb.device) || base.settings.ffb.device || firstAlias
+        },
+        axes,
+        buttons
+      },
+      metadata: options.metadata || base.metadata || {}
+    };
+  }
+
   toSetup(options = {}) {
+    if (options.baseProfile) {
+      return this._mergeSetup(validateProfile(options.baseProfile), options);
+    }
     const mapping = this.getMapping();
     const referenced = [];
     const addRef = id => {
@@ -568,6 +647,11 @@ export class WheelManager {
     for (const entry of Object.values(mapping.axes)) addRef(entry && entry.device);
     for (const entry of Object.values(mapping.buttons)) addRef(entry && entry.device);
 
+    if (!referenced.length) {
+      for (const entry of this.sessionList) {
+        if (entry.session && entry.session.isConnected) addRef(entry.id);
+      }
+    }
     if (!referenced.length) {
       throw new Error('connect a device before creating a setup profile');
     }

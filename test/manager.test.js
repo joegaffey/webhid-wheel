@@ -178,6 +178,28 @@ test('WheelManager connects an authorized device without requestDevice', async (
   }
 });
 
+test('a gamepad with an X axis is not classified as a wheel', async () => {
+  const manager = new WheelManager();
+  const gamepad = new FakeDevice('Xbox Wireless Controller', [{
+    usagePage: 0x01,
+    usage: 0x05,
+    inputReports: [{
+      reportId: 3,
+      items: [
+        item([usage(0x01, 0x30)], 16, 1, 0, 65535),
+        item([usage(0x01, 0x31)], 16, 1, 0, 65535),
+        item([usage(0x09, 0x01)], 1, 8, 0, 1)
+      ]
+    }],
+    outputReports: [],
+    featureReports: []
+  }], 0x045e, 0x0b13);
+  const entry = await manager.connect(gamepad);
+  assert.equal(entry.driver, 'generic');
+  assert.equal(entry.capabilities.steering, false);
+  assert.equal(manager.getCalibration().device, null);
+});
+
 test('WheelManager reuses a disconnected session by hardware signature', async () => {
   const manager = new WheelManager();
   const first = new FakeDevice('Reusable Wheel', wheelDescriptor(), 0x5151, 0x6161);

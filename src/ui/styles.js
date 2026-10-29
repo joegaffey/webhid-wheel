@@ -49,7 +49,7 @@ input[type="checkbox"] { accent-color: var(--wheel-accent, #38bdf8); }
 .status.error { color: var(--wheel-danger, #f87171); }
 .list { display: grid; gap: 4px; margin: 8px 0; }
 .list-item { display: flex; justify-content: space-between; gap: 8px; align-items: center; padding: 4px 6px; border: 1px solid var(--wheel-border-color, #2a303a); border-radius: 3px; }
-.badge { font-size: 10px; color: var(--wheel-muted-color, #8f9bab); border: 1px solid var(--wheel-border-color, #2a303a); border-radius: 999px; padding: 1px 6px; }
+.badge { display: inline-flex; align-items: center; justify-content: center; line-height: 1; font-size: 10px; color: var(--wheel-muted-color, #8f9bab); border: 1px solid var(--wheel-border-color, #2a303a); border-radius: 999px; padding: 2px 6px; }
 .actions { display: flex; gap: 6px; flex-wrap: wrap; }
 .grid { display: grid; gap: 6px; }
 `;

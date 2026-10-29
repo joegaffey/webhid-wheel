@@ -1,5 +1,7 @@
 import type {
   SetupProfile,
+  SetupProfileDevice,
+  SetupProfileHardware,
   SetupProfileManager,
   WheelManager,
   WheelManagerSession
@@ -29,6 +31,12 @@ export interface WebHIDSelectDetail {
   session: WheelManagerSession;
 }
 
+export interface WebHIDRemoveDeviceDetail {
+  hardware: SetupProfileHardware;
+  session?: WheelManagerSession;
+  alias?: string;
+}
+
 export interface WebHIDTabDetail {
   tab: 'wheel' | 'axes' | 'buttons';
 }
@@ -37,6 +45,7 @@ export declare class WebHIDDevicePicker extends HTMLElement {
   manager: WheelManager | null;
   filters: HIDDeviceFilter[] | null;
   selectedId: string | null;
+  profileDevices: SetupProfileDevice[];
   refresh(): void;
 }
 
