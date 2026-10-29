@@ -1,36 +1,59 @@
-import { WebHIDWheel, WebHIDDevice, mapChannels } from './drivers.js';
+import {
+  WebHIDWheel,
+  WebHIDDevice,
+  mapChannels,
+  detectDeviceCapabilities,
+  deviceSignature
+} from './drivers.js';
 import { clamp } from './calibration.js';
 import {
   PROFILE_KIND,
   PROFILE_SCHEMA_VERSION,
-  validateProfile
+  validateProfile,
+  matchProfile
 } from './profiles.js';
 
-const WHEEL_ROLE = 'wheel';
+const DEFAULT_STEERING = {
+  deadzone: 0,
+  saturation: 1,
+  maxRotation: 900,
+  invert: false
+};
 
-function cloneMapping(mapping) {
-  return {
-    axes: { ...(mapping && mapping.axes ? mapping.axes : {}) },
-    buttons: { ...(mapping && mapping.buttons ? mapping.buttons : {}) }
-  };
+const DEFAULT_FFB = {
+  gain: 0.25,
+  invert: false
+};
+
+function cloneEntry(entry) {
+  return entry ? { ...entry } : entry;
 }
 
 export class WheelManager {
   constructor(options = {}) {
     this.options = { ...options };
-    this.maxRotation = options.maxRotation !== undefined ? options.maxRotation : 900;
-    this.ffbStrength = options.ffbStrength !== undefined ? options.ffbStrength : 0.25;
-    this.ffbInvert = options.ffbInvert !== undefined ? options.ffbInvert : false;
-    this.calibration = {
-      deadzone: options.deadzone !== undefined ? options.deadzone : 0,
-      saturation: options.saturation !== undefined ? options.saturation : 1,
-      invert: options.invertSteering !== undefined ? options.invertSteering : false
-    };
-    this.mapping = cloneMapping(options.mapping);
     this._listeners = {};
     this._sessions = new Map();
     this._channels = {};
-    this._setup = null;
+    this._nextId = 1;
+    this._profile = null;
+    this._missingAliases = [];
+    this._mapping = {
+      steering: {
+        device: null,
+        deadzone: options.deadzone !== undefined ? options.deadzone : DEFAULT_STEERING.deadzone,
+        saturation: options.saturation !== undefined ? options.saturation : DEFAULT_STEERING.saturation,
+        maxRotation: options.maxRotation !== undefined ? options.maxRotation : DEFAULT_STEERING.maxRotation,
+        invert: options.invertSteering !== undefined ? options.invertSteering : DEFAULT_STEERING.invert
+      },
+      ffb: {
+        device: null,
+        gain: options.ffbStrength !== undefined ? options.ffbStrength : DEFAULT_FFB.gain,
+        invert: options.ffbInvert !== undefined ? options.ffbInvert : DEFAULT_FFB.invert
+      },
+      axes: {},
+      buttons: {}
+    };
   }
 
   on(event, fn) {
@@ -53,37 +76,82 @@ export class WheelManager {
     }
   }
 
-  get wheel() {
-    const entry = this._sessions.get(WHEEL_ROLE);
-    return entry ? entry.session : null;
-  }
-
   get sessions() {
     return new Map(this._sessions);
   }
 
+  get sessionList() {
+    return Array.from(this._sessions.values());
+  }
+
   get isConnected() {
-    return !!(this.wheel && this.wheel.isConnected);
+    return this.sessionList.some(entry => entry.session && entry.session.isConnected);
   }
 
   get channels() {
     return { ...this._channels };
   }
 
+  get wheel() {
+    const steering = this._sessions.get(this._mapping.steering.device);
+    if (steering && steering.driver === 'wheel') return steering.session;
+    const ffb = this._sessions.get(this._mapping.ffb.device);
+    if (ffb && ffb.driver === 'wheel') return ffb.session;
+    const fallback = this.sessionList.find(entry => entry.driver === 'wheel');
+    return fallback ? fallback.session : null;
+  }
+
+  get maxRotation() {
+    return this._mapping.steering.maxRotation;
+  }
+
+  set maxRotation(value) {
+    const maxRotation = Number(value);
+    if (Number.isFinite(maxRotation)) {
+      this._mapping.steering.maxRotation = clamp(maxRotation, 40, 1800);
+      this._applySteeringSettings();
+      this._recomputeChannels();
+    }
+  }
+
+  get ffbStrength() {
+    return this._mapping.ffb.gain;
+  }
+
+  set ffbStrength(value) {
+    this.setFfb({ gain: value });
+  }
+
+  get ffbInvert() {
+    return this._mapping.ffb.invert;
+  }
+
+  set ffbInvert(value) {
+    this.setFfb({ invert: value });
+  }
+
   get state() {
-    const wheelState = this.wheel ? this.wheel.state : null;
-    const devices = {};
-    for (const [role, entry] of this._sessions) {
-      if (role === WHEEL_ROLE) continue;
-      devices[role] = entry.session.state;
+    const sessions = {};
+    let timestamp = 0;
+    for (const entry of this._sessions.values()) {
+      const instance = entry.session;
+      sessions[entry.id] = {
+        id: entry.id,
+        name: entry.name,
+        driver: entry.driver,
+        capabilities: entry.capabilities,
+        connected: !!(instance && instance.isConnected),
+        state: instance ? instance.state : null
+      };
+      if (instance && typeof instance.timestamp === 'number') {
+        timestamp = Math.max(timestamp, instance.timestamp);
+      }
     }
     return {
-      wheel: wheelState,
-      devices,
+      sessions,
       channels: this.channels,
-      timestamp: this.wheel && this.wheel.timestamp !== undefined
-        ? this.wheel.timestamp
-        : 0
+      steering: this._channels.steering || 0,
+      timestamp
     };
   }
 
@@ -92,11 +160,11 @@ export class WheelManager {
       ...(this.options.wheelOptions || {}),
       filters: this.options.filters,
       maxRotation: this.maxRotation,
-      ffbStrength: this.ffbStrength,
-      ffbInvert: this.ffbInvert,
-      deadzone: this.calibration.deadzone,
-      saturation: this.calibration.saturation,
-      invertSteering: this.calibration.invert
+      ffbStrength: this._mapping.ffb.gain,
+      ffbInvert: this._mapping.ffb.invert,
+      deadzone: this._mapping.steering.deadzone,
+      saturation: this._mapping.steering.saturation,
+      invertSteering: this._mapping.steering.invert
     };
   }
 
@@ -107,213 +175,443 @@ export class WheelManager {
     };
   }
 
-  _attach(role, session) {
-    const entry = { role, session };
-    session.on('input', () => {
+  _nextSessionId() {
+    let id;
+    do {
+      id = `device-${this._nextId++}`;
+    } while (this._sessions.has(id));
+    return id;
+  }
+
+  _attach(id, metadata, instance) {
+    const entry = {
+      id,
+      name: metadata.name || metadata.device.productName || id,
+      driver: metadata.driver,
+      capabilities: metadata.capabilities,
+      device: metadata.device,
+      hardware: metadata.hardware,
+      label: metadata.label || null,
+      session: instance
+    };
+
+    instance.on('input', () => {
       this._recomputeChannels();
       this.emit('input', this.state);
     });
-    session.on('connect', (device) => {
-      this.emit('connect', { role, device, session });
-    });
-    session.on('disconnect', (device) => {
+    instance.on('disconnect', (device) => {
       this._recomputeChannels();
-      this.emit('disconnect', { role, device, session });
+      this.emit('disconnect', { session: entry, device });
     });
-    session.on('error', (error) => {
-      this.emit('error', error);
-    });
-    this._sessions.set(role, entry);
+    instance.on('error', (error) => this.emit('error', error));
+
+    this._sessions.set(id, entry);
+    return entry;
+  }
+
+  _hardwareFor(device, instance) {
+    return {
+      vendorId: device.vendorId,
+      productId: device.productId,
+      productName: device.productName || instance.name || '',
+      signature: device.signature || (instance && instance.signature) || deviceSignature(device)
+    };
+  }
+
+  _capabilitiesFor(entry) {
+    const instance = entry.session;
+    const base = { ...entry.capabilities };
+    if (entry.driver === 'wheel') {
+      base.steering = !!(instance.layout || (instance.profile && instance.profile.parse));
+      base.ffb = !!(instance.ffbCaps && instance.ffbCaps.constant);
+      base.axes = instance.inputLayout && instance.inputLayout.axes ? instance.inputLayout.axes.length : base.axes || 0;
+      base.buttons = instance.inputLayout && instance.inputLayout.buttons ? instance.inputLayout.buttons.length : base.buttons || 0;
+      base.hats = instance.inputLayout && instance.inputLayout.hats ? instance.inputLayout.hats.length : base.hats || 0;
+    } else {
+      base.steering = false;
+      base.ffb = false;
+      base.axes = instance.inputLayout && instance.inputLayout.axes ? instance.inputLayout.axes.length : base.axes || 0;
+      base.buttons = instance.inputLayout && instance.inputLayout.buttons ? instance.inputLayout.buttons.length : base.buttons || 0;
+      base.hats = instance.inputLayout && instance.inputLayout.hats ? instance.inputLayout.hats.length : base.hats || 0;
+    }
+    return base;
+  }
+
+  async connect(device, options = {}) {
+    if (typeof navigator === 'undefined' || !navigator.hid) {
+      throw new Error('WebHID not supported by browser or not available.');
+    }
+    let dev = device;
+    if (!dev) {
+      if (!navigator.hid.requestDevice) {
+        throw new Error('WebHID requestDevice is not available; pass an authorized device.');
+      }
+      const devices = await navigator.hid.requestDevice({ filters: this.options.filters || [] });
+      dev = devices[0];
+    }
+    if (!dev) return null;
+
+    const existing = this.sessionList.find(entry => entry.device === dev);
+    if (existing) {
+      if (!existing.session.isConnected) await existing.session.connect(dev);
+      this._recomputeChannels();
+      return existing;
+    }
+
+    const detected = detectDeviceCapabilities(dev);
+    const driver = options.driver || detected.driver;
+    const capabilities = {
+      ...detected,
+      steering: driver === 'wheel' ? detected.steering : false,
+      ffb: driver === 'wheel' ? detected.ffb : false
+    };
+    const instance = driver === 'wheel'
+      ? new WebHIDWheel(this._wheelOptions())
+      : new WebHIDDevice(this._deviceOptions());
+    const id = options.id || this._nextSessionId();
+    const entry = this._attach(id, {
+      name: options.label || dev.productName || id,
+      driver,
+      capabilities,
+      device: dev,
+      hardware: this._hardwareFor(dev, instance),
+      label: options.label || null
+    }, instance);
+
+    let connected = null;
+    try {
+      connected = await instance.connect(dev);
+    } catch (error) {
+      this._sessions.delete(id);
+      throw error;
+    }
+    if (!connected) {
+      this._sessions.delete(id);
+      return null;
+    }
+
+    entry.name = options.label || instance.name || dev.productName || id;
+    entry.hardware = this._hardwareFor(dev, instance);
+    entry.capabilities = this._capabilitiesFor(entry);
+    this._applySteeringSettings();
+    this._applyFfbSettings();
+
+    if (this._profile && this._missingAliases.length) {
+      this.applySetup(this._profile);
+    } else {
+      this._ensureDefaultBindings(entry);
+    }
+
+    this._recomputeChannels();
+    this.emit('connect', { session: entry, device: dev });
     return entry;
   }
 
   async connectWheel(device) {
-    let entry = this._sessions.get(WHEEL_ROLE);
-    if (!entry) {
-      entry = this._attach(WHEEL_ROLE, new WebHIDWheel(this._wheelOptions()));
-    }
-    const connected = await entry.session.connect(device);
-    if (connected) {
-      this._applyWheelSettings();
-      this._recomputeChannels();
-    }
-    return connected;
+    const entry = await this.connect(device, { driver: 'wheel' });
+    return entry ? entry.device : null;
   }
 
-  async addDevice(role, device) {
-    if (!role || role === WHEEL_ROLE) {
-      throw new Error('role must be a non-empty name other than "wheel"');
+  async addDevice(roleOrDevice, maybeDevice) {
+    let device = maybeDevice;
+    let label = null;
+    if (maybeDevice !== undefined) {
+      label = roleOrDevice ? String(roleOrDevice) : null;
+    } else {
+      device = roleOrDevice;
     }
-    let entry = this._sessions.get(role);
-    if (entry && entry.session.isConnected) return entry.session.device;
-    if (!entry) {
-      entry = this._attach(role, new WebHIDDevice(this._deviceOptions()));
-    }
-    const connected = await entry.session.connect(device);
-    if (connected) this._recomputeChannels();
-    return connected;
+    const entry = await this.connect(device, { driver: 'generic', label });
+    return entry ? entry.device : null;
   }
 
-  async disconnect(role = WHEEL_ROLE) {
-    const entry = this._sessions.get(role);
+  _ensureDefaultBindings(entry) {
+    if (entry.capabilities.steering && !this._mapping.steering.device) {
+      this._mapping.steering.device = entry.id;
+      if (entry.session && entry.session.maxRotation) {
+        this._mapping.steering.maxRotation = entry.session.maxRotation;
+      }
+    }
+    if (entry.capabilities.ffb && !this._mapping.ffb.device) {
+      this._mapping.ffb.device = entry.id;
+    }
+    this._applySteeringSettings();
+    this._applyFfbSettings();
+  }
+
+  _applySteeringSettings() {
+    const entry = this._sessions.get(this._mapping.steering.device);
+    if (!entry || entry.driver !== 'wheel') return;
+    const instance = entry.session;
+    instance.maxRotation = this._mapping.steering.maxRotation;
+    instance.deadzone = this._mapping.steering.deadzone;
+    instance.saturation = this._mapping.steering.saturation;
+    instance.invertSteering = this._mapping.steering.invert;
+  }
+
+  _applyFfbSettings() {
+    const entry = this._sessions.get(this._mapping.ffb.device);
+    if (!entry || entry.driver !== 'wheel') return;
+    entry.session.ffbStrength = this._mapping.ffb.gain;
+    entry.session.ffbInvert = this._mapping.ffb.invert;
+  }
+
+  _stateFor(entry) {
+    if (!entry || !entry.device) return null;
+    const sessionEntry = this._sessions.get(entry.device);
+    if (!sessionEntry) return null;
+    const instance = sessionEntry.session;
+    return sessionEntry.driver === 'wheel'
+      ? (instance.deviceState || instance.state)
+      : instance.state;
+  }
+
+  _recomputeChannels() {
+    const channels = {};
+    const steeringEntry = this._sessions.get(this._mapping.steering.device);
+    if (steeringEntry && steeringEntry.driver === 'wheel' && Number.isFinite(steeringEntry.session.rotation)) {
+      const maxRotation = this._mapping.steering.maxRotation || steeringEntry.session.maxRotation || 900;
+      channels.steering = clamp(steeringEntry.session.rotation / (maxRotation / 2), -1, 1);
+    } else {
+      channels.steering = 0;
+    }
+
+    for (const [channel, entry] of Object.entries(this._mapping.axes || {})) {
+      const state = this._stateFor(entry);
+      channels[channel] = state ? (mapChannels(state, { [channel]: entry })[channel] || 0) : 0;
+    }
+    for (const [channel, entry] of Object.entries(this._mapping.buttons || {})) {
+      const state = this._stateFor(entry);
+      channels[channel] = state ? (mapChannels(state, { [channel]: entry })[channel] || 0) : 0;
+    }
+    this._channels = channels;
+  }
+
+  async disconnect(id) {
+    const entry = this._sessions.get(id) || (id === undefined ? this._sessions.get(this._mapping.steering.device) : null);
     if (!entry) return;
     await entry.session.disconnect();
     this._recomputeChannels();
   }
 
   async disconnectAll() {
-    for (const role of Array.from(this._sessions.keys())) {
-      await this.disconnect(role);
+    for (const entry of this.sessionList) {
+      await entry.session.disconnect();
     }
-  }
-
-  _applyWheelSettings() {
-    const wheel = this.wheel;
-    if (!wheel) return;
-    wheel.maxRotation = this.maxRotation;
-    wheel.deadzone = this.calibration.deadzone;
-    wheel.saturation = this.calibration.saturation;
-    wheel.invertSteering = this.calibration.invert;
-    wheel.ffbStrength = this.ffbStrength;
-    wheel.ffbInvert = this.ffbInvert;
+    this._recomputeChannels();
   }
 
   setCalibration(calibration = {}) {
+    if (calibration.device !== undefined) {
+      this._mapping.steering.device = calibration.device || null;
+    }
     if (calibration.deadzone !== undefined) {
-      this.calibration.deadzone = clamp(Number(calibration.deadzone) || 0, 0, 0.5);
+      this._mapping.steering.deadzone = clamp(Number(calibration.deadzone) || 0, 0, 0.5);
     }
     if (calibration.saturation !== undefined) {
-      this.calibration.saturation = clamp(Number(calibration.saturation) || 1, 0.05, 1);
+      this._mapping.steering.saturation = clamp(Number(calibration.saturation) || 1, 0.05, 1);
     }
     if (calibration.invert !== undefined) {
-      this.calibration.invert = !!calibration.invert;
+      this._mapping.steering.invert = !!calibration.invert;
     }
-    if (this.calibration.saturation <= this.calibration.deadzone) {
-      this.calibration.saturation = Math.min(1, this.calibration.deadzone + 0.05);
+    if (calibration.maxRotation !== undefined) {
+      this._mapping.steering.maxRotation = clamp(Number(calibration.maxRotation) || 900, 40, 1800);
     }
-    this._applyWheelSettings();
+    if (this._mapping.steering.saturation <= this._mapping.steering.deadzone) {
+      this._mapping.steering.saturation = Math.min(1, this._mapping.steering.deadzone + 0.05);
+    }
+    this._applySteeringSettings();
     this._recomputeChannels();
     return this.getCalibration();
   }
 
   getCalibration() {
-    return { ...this.calibration };
+    return {
+      device: this._mapping.steering.device,
+      deadzone: this._mapping.steering.deadzone,
+      saturation: this._mapping.steering.saturation,
+      invert: this._mapping.steering.invert,
+      maxRotation: this._mapping.steering.maxRotation
+    };
   }
 
   setFfb(ffb = {}) {
-    if (ffb.gain !== undefined) this.ffbStrength = clamp(Number(ffb.gain) || 0, 0, 1);
-    if (ffb.invert !== undefined) this.ffbInvert = !!ffb.invert;
-    this._applyWheelSettings();
+    if (ffb.device !== undefined) this._mapping.ffb.device = ffb.device || null;
+    if (ffb.gain !== undefined) this._mapping.ffb.gain = clamp(Number(ffb.gain) || 0, 0, 1);
+    if (ffb.invert !== undefined) this._mapping.ffb.invert = !!ffb.invert;
+    this._applyFfbSettings();
     return this.getFfb();
   }
 
   getFfb() {
-    return { gain: this.ffbStrength, invert: this.ffbInvert };
+    return {
+      device: this._mapping.ffb.device,
+      gain: this._mapping.ffb.gain,
+      invert: this._mapping.ffb.invert
+    };
   }
 
   setMapping(mapping = {}) {
-    this.mapping = cloneMapping(mapping);
+    if (mapping.steering) {
+      this._mapping.steering = { ...this._mapping.steering, ...mapping.steering };
+    }
+    if (mapping.ffb) {
+      this._mapping.ffb = { ...this._mapping.ffb, ...mapping.ffb };
+    }
+    if (mapping.axes) {
+      this._mapping.axes = Object.fromEntries(
+        Object.entries(mapping.axes).map(([key, entry]) => [key, cloneEntry(entry)])
+      );
+    }
+    if (mapping.buttons) {
+      this._mapping.buttons = Object.fromEntries(
+        Object.entries(mapping.buttons).map(([key, entry]) => [key, cloneEntry(entry)])
+      );
+    }
+    this._applySteeringSettings();
+    this._applyFfbSettings();
     this._recomputeChannels();
-    return { axes: { ...this.mapping.axes }, buttons: { ...this.mapping.buttons } };
+    return this.getMapping();
   }
 
   getMapping() {
-    return { axes: { ...this.mapping.axes }, buttons: { ...this.mapping.buttons } };
+    return {
+      steering: { ...this._mapping.steering },
+      ffb: { ...this._mapping.ffb },
+      axes: Object.fromEntries(
+        Object.entries(this._mapping.axes).map(([key, entry]) => [key, cloneEntry(entry)])
+      ),
+      buttons: Object.fromEntries(
+        Object.entries(this._mapping.buttons).map(([key, entry]) => [key, cloneEntry(entry)])
+      )
+    };
+  }
+
+  _deviceObjects() {
+    return this.sessionList.map(entry => entry.device).filter(Boolean);
   }
 
   applySetup(profile) {
     const normalized = validateProfile(profile);
-    this.maxRotation = normalized.settings.steering.maxRotation;
-    this.calibration = {
-      deadzone: normalized.settings.steering.deadzone,
-      saturation: normalized.settings.steering.saturation,
-      invert: normalized.settings.steering.invert
-    };
-    this.ffbStrength = normalized.settings.ffb.gain;
-    this.ffbInvert = normalized.settings.ffb.invert;
-    this.mapping = {
-      axes: { ...normalized.settings.axes },
-      buttons: { ...normalized.settings.buttons }
-    };
-    this._setup = normalized;
-    this._applyWheelSettings();
+    this._profile = normalized;
+    const result = matchProfile(normalized, this._deviceObjects());
+    const aliases = {};
+    for (const [alias, device] of Object.entries(result.matches)) {
+      const entry = this.sessionList.find(item => item.device === device);
+      if (entry) aliases[alias] = entry.id;
+    }
+    const resolve = alias => aliases[alias] || null;
+    const settings = normalized.settings;
+
+    this._mapping.steering = { ...settings.steering, device: resolve(settings.steering.device) };
+    this._mapping.ffb = { ...settings.ffb, device: resolve(settings.ffb.device) };
+    this._mapping.axes = Object.fromEntries(
+      Object.entries(settings.axes).map(([key, entry]) => [
+        key,
+        { ...entry, device: resolve(entry.device) }
+      ])
+    );
+    this._mapping.buttons = Object.fromEntries(
+      Object.entries(settings.buttons).map(([key, entry]) => [
+        key,
+        { ...entry, device: resolve(entry.device) }
+      ])
+    );
+
+    this._missingAliases = [
+      ...result.missing.map(item => item.alias),
+      ...result.ambiguous.map(item => item.alias)
+    ];
+
+    this._applySteeringSettings();
+    this._applyFfbSettings();
     this._recomputeChannels();
-    this.emit('setup-applied', normalized);
+    this.emit('setup-applied', {
+      profile: normalized,
+      matches: aliases,
+      missing: this._missingAliases,
+      ambiguous: result.ambiguous
+    });
     return normalized;
   }
 
-  _hardware() {
-    const device = this.wheel && this.wheel.device;
-    if (!device) return this.options.hardware || null;
-    return {
-      vendorId: device.vendorId,
-      productId: device.productId,
-      productName: device.productName || '',
-      signature: device.signature || (this.wheel && this.wheel.signature) || null
-    };
-  }
-
   toSetup(options = {}) {
-    const hardware = options.hardware || this._hardware();
-    if (!hardware) {
-      throw new Error('connect a wheel before creating a setup profile');
+    const mapping = this.getMapping();
+    const referenced = [];
+    const addRef = id => {
+      if (id && !referenced.includes(id)) referenced.push(id);
+    };
+    addRef(mapping.steering.device);
+    addRef(mapping.ffb.device);
+    for (const entry of Object.values(mapping.axes)) addRef(entry && entry.device);
+    for (const entry of Object.values(mapping.buttons)) addRef(entry && entry.device);
+
+    if (!referenced.length) {
+      throw new Error('connect a device before creating a setup profile');
     }
+
+    const aliases = new Map();
+    referenced.forEach((id, index) => aliases.set(id, `d${index + 1}`));
+    const aliasFor = id => (id ? aliases.get(id) || null : null);
+
+    const devices = referenced.map(id => {
+      const entry = this._sessions.get(id);
+      if (!entry || !entry.device) {
+        throw new Error(`device ${id} is not available`);
+      }
+      return {
+        alias: aliases.get(id),
+        driver: entry.driver,
+        hardware: entry.hardware
+      };
+    });
+
+    const firstAlias = devices[0].alias;
+    const convert = (entry, fallback) => ({
+      ...entry,
+      device: aliasFor(entry.device) || fallback
+    });
+
     return {
       kind: PROFILE_KIND,
       schemaVersion: PROFILE_SCHEMA_VERSION,
-      profileName: options.profileName || (this._setup && this._setup.profileName) || 'Wheel setup',
-      hardware,
+      profileName: options.profileName || (this._profile && this._profile.profileName) || 'Wheel setup',
+      devices,
       settings: {
         steering: {
-          deadzone: this.calibration.deadzone,
-          saturation: this.calibration.saturation,
-          maxRotation: this.maxRotation,
-          invert: this.calibration.invert
+          ...mapping.steering,
+          device: aliasFor(mapping.steering.device) || firstAlias
         },
         ffb: {
-          gain: this.ffbStrength,
-          invert: this.ffbInvert
+          ...mapping.ffb,
+          device: aliasFor(mapping.ffb.device) || firstAlias
         },
-        axes: { ...this.mapping.axes },
-        buttons: { ...this.mapping.buttons }
+        axes: Object.fromEntries(
+          Object.entries(mapping.axes).map(([key, entry]) => [key, convert(entry, firstAlias)])
+        ),
+        buttons: Object.fromEntries(
+          Object.entries(mapping.buttons).map(([key, entry]) => [key, convert(entry, firstAlias)])
+        )
       },
-      metadata: options.metadata || (this._setup && this._setup.metadata) || {}
+      metadata: options.metadata || (this._profile && this._profile.metadata) || {}
     };
-  }
-
-  _recomputeChannels() {
-    const channels = {};
-    const wheelState = this.wheel
-      ? (this.wheel.deviceState || this.wheel.state)
-      : null;
-
-    const stateFor = (entry) => {
-      if (!entry || entry.device === WHEEL_ROLE || !entry.device) return wheelState;
-      const session = this._sessions.get(entry.device);
-      return session ? session.session.state : null;
-    };
-
-    for (const [channel, entry] of Object.entries(this.mapping.axes || {})) {
-      const state = stateFor(entry);
-      channels[channel] = state ? (mapChannels(state, { [channel]: entry })[channel] || 0) : 0;
-    }
-    for (const [channel, entry] of Object.entries(this.mapping.buttons || {})) {
-      const state = stateFor(entry);
-      channels[channel] = state ? (mapChannels(state, { [channel]: entry })[channel] || 0) : 0;
-    }
-    this._channels = channels;
   }
 
   constant(value) {
-    return this.wheel && this.wheel.ffb ? this.wheel.ffb.constant(value) : Promise.resolve();
+    const entry = this._sessions.get(this._mapping.ffb.device);
+    if (!entry || entry.driver !== 'wheel' || !entry.session.ffb) return Promise.resolve();
+    return entry.session.ffb.constant(value);
   }
 
   constantFast(value) {
-    return this.wheel && this.wheel.ffb ? this.wheel.ffb.constantFast(value) : Promise.resolve();
+    const entry = this._sessions.get(this._mapping.ffb.device);
+    if (!entry || entry.driver !== 'wheel' || !entry.session.ffb) return Promise.resolve();
+    return entry.session.ffb.constantFast(value);
   }
 
   stop() {
-    return this.wheel && this.wheel.ffb ? this.wheel.ffb.stop() : Promise.resolve();
+    const entry = this._sessions.get(this._mapping.ffb.device);
+    if (!entry || entry.driver !== 'wheel' || !entry.session.ffb) return Promise.resolve();
+    return entry.session.ffb.stop();
   }
 }
 

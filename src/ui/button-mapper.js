@@ -93,9 +93,9 @@ export class WebHIDButtonMapper extends WebHIDElement {
 
   css() {
     return `
-      .mapping { display: grid; grid-template-columns: 76px minmax(80px, 1fr) 78px 54px 70px auto; gap: 5px; align-items: center; margin: 4px 0; }
+      .mapping { display: grid; grid-template-columns: 76px minmax(100px, 1fr) 78px 54px 70px auto; gap: 5px; align-items: center; margin: 4px 0; }
       .mapping input[type="number"] { width: 100%; }
-      .mapping.direction-hidden { grid-template-columns: 76px minmax(80px, 1fr) 78px 54px auto; }
+      .mapping.direction-hidden { grid-template-columns: 76px minmax(100px, 1fr) 78px 54px auto; }
       .mapping.direction-hidden select[data-field="direction"] { display: none; }
       .live { font-variant-numeric: tabular-nums; color: var(--wheel-muted-color, #8f9bab); min-width: 38px; text-align: right; }
       .mapping.armed { outline: 1px solid var(--wheel-accent, #38bdf8); outline-offset: 2px; }
@@ -108,41 +108,51 @@ export class WebHIDButtonMapper extends WebHIDElement {
     `;
   }
 
-  _roles() {
-    const roles = ['wheel'];
-    if (this.manager && this.manager.sessions) {
-      for (const role of this.manager.sessions.keys()) {
-        if (role !== 'wheel' && !roles.includes(role)) roles.push(role);
-      }
+  _devices() {
+    if (!this.manager || !this.manager.sessionList) return [];
+    return this.manager.sessionList.filter(entry =>
+      entry.capabilities && (entry.capabilities.buttons > 0 || entry.capabilities.hats > 0)
+    );
+  }
+
+  _options(devices, current) {
+    const options = devices.map(device => {
+      const label = device.name || device.id;
+      return `<option value="${escapeHtml(device.id)}"${device.id === current ? ' selected' : ''}>${escapeHtml(label)}</option>`;
+    });
+    if (current && !devices.some(device => device.id === current)) {
+      options.unshift(`<option value="${escapeHtml(current)}" selected>Missing device (${escapeHtml(current)})</option>`);
     }
-    return roles;
+    if (!options.length) options.push('<option value="">No devices</option>');
+    return options.join('');
   }
 
   template() {
     const mapping = this.manager && typeof this.manager.getMapping === 'function'
       ? this.manager.getMapping().buttons
       : (this._mappingOverride && (this._mappingOverride.buttons || this._mappingOverride) || {});
-    const roles = this._roles();
+    const devices = this._devices();
+    const disabled = devices.length ? '' : ' disabled';
     const rows = BUTTON_ACTIONS.map(([channel, label]) => {
       const entry = mapping[channel] || {};
-      const device = entry.device || 'wheel';
+      const device = entry.device || (devices[0] && devices[0].id) || '';
       const source = entry.source === 'hat' ? 'hat' : 'button';
       const index = Number.isInteger(entry.index) ? entry.index : 0;
       const direction = entry.direction || 'up';
       return `
         <div class="mapping${source === 'hat' ? '' : ' direction-hidden'}" data-channel="${channel}">
           <label>${label}</label>
-          <select data-field="device">${roles.map(role => `<option value="${escapeHtml(role)}"${role === device ? ' selected' : ''}>${escapeHtml(role)}</option>`).join('')}</select>
-          <select data-field="source">
+          <select data-field="device"${disabled}>${this._options(devices, device)}</select>
+          <select data-field="source"${disabled}>
             <option value="button"${source === 'button' ? ' selected' : ''}>button</option>
             <option value="hat"${source === 'hat' ? ' selected' : ''}>hat</option>
           </select>
-          <input data-field="index" type="number" min="0" step="1" value="${index}" aria-label="${label} index">
-          <select data-field="direction">${HAT_DIRECTIONS.map(dir => `<option value="${dir}"${dir === direction ? ' selected' : ''}>${dir}</option>`).join('')}</select>
+          <input data-field="index" type="number" min="0" step="1" value="${index}" aria-label="${label} index"${disabled}>
+          <select data-field="direction"${disabled}>${HAT_DIRECTIONS.map(dir => `<option value="${dir}"${dir === direction ? ' selected' : ''}>${dir}</option>`).join('')}</select>
           <div class="actions">
             <span class="live" data-live="0.00">0.00</span>
-            <button type="button" data-action="set">Set</button>
-            <button type="button" data-action="clear">Clear</button>
+            <button type="button" data-action="set"${disabled}>Set</button>
+            <button type="button" data-action="clear"${disabled}>Clear</button>
           </div>
         </div>
       `;
@@ -186,9 +196,14 @@ export class WebHIDButtonMapper extends WebHIDElement {
     for (const [channel] of BUTTON_ACTIONS) {
       const row = this._row(channel);
       if (!row) continue;
+      const device = row.querySelector('[data-field="device"]').value;
+      if (!device) {
+        delete mapping.buttons[channel];
+        continue;
+      }
       const source = row.querySelector('[data-field="source"]').value;
       const entry = {
-        device: row.querySelector('[data-field="device"]').value,
+        device,
         source,
         index: Math.max(0, Math.floor(Number(row.querySelector('[data-field="index"]').value) || 0))
       };
@@ -200,17 +215,20 @@ export class WebHIDButtonMapper extends WebHIDElement {
     this.emit('webhid-change', { mapping });
   }
 
-  _stateFor(role) {
-    if (!this.manager) return null;
-    const state = this.manager.state;
-    if (role === 'wheel') return state.wheel;
-    return state.devices && state.devices[role] ? state.devices[role] : null;
+  _stateFor(id) {
+    if (!this.manager || !this.manager.sessions) return null;
+    const entry = this.manager.sessions.get(id);
+    if (!entry) return null;
+    return entry.driver === 'wheel'
+      ? (entry.session.deviceState || entry.session.state)
+      : entry.session.state;
   }
 
   _arm(channel) {
     const row = this._row(channel);
     if (!row) return;
     const device = row.querySelector('[data-field="device"]').value;
+    if (!device) return;
     const state = this._stateFor(device);
     this._capture = {
       channel,
@@ -232,11 +250,11 @@ export class WebHIDButtonMapper extends WebHIDElement {
     for (const [channel] of BUTTON_ACTIONS) {
       const row = this._row(channel);
       if (!row) continue;
-      const role = row.querySelector('[data-field="device"]').value;
+      const id = row.querySelector('[data-field="device"]').value;
       const source = row.querySelector('[data-field="source"]').value;
       const index = Math.max(0, Math.floor(Number(row.querySelector('[data-field="index"]').value) || 0));
       const direction = row.querySelector('[data-field="direction"]').value;
-      const state = this._stateFor(role);
+      const state = this._stateFor(id);
       let value = 0;
       if (source === 'button') {
         value = state && state.buttons && state.buttons[index] ? 1 : 0;
@@ -257,7 +275,7 @@ export class WebHIDButtonMapper extends WebHIDElement {
             row.querySelector('[data-field="index"]').value = String(best);
             this._cancelCapture();
             this._commit();
-            this.emit('webhid-capture', { channel, device: role, source: 'button', index: best });
+            this.emit('webhid-capture', { channel, device: id, source: 'button', index: best });
           }
         } else {
           const hats = state && state.hats ? state.hats : [];
@@ -276,7 +294,7 @@ export class WebHIDButtonMapper extends WebHIDElement {
             row.querySelector('[data-field="direction"]').value = bestDirection;
             this._cancelCapture();
             this._commit();
-            this.emit('webhid-capture', { channel, device: role, source: 'hat', index: best, direction: bestDirection });
+            this.emit('webhid-capture', { channel, device: id, source: 'hat', index: best, direction: bestDirection });
           }
         }
       }

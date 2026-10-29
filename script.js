@@ -1,19 +1,15 @@
-import { isForceFeedbackWheel, WheelManager } from './src/core/index.js';
+import { WheelManager } from './src/core/index.js';
 import './src/ui/index.js';
 
-const STORAGE_KEY = 'webhid-wheel:v2:profiles';
-const manager = new WheelManager({ maxRotation: 900, ffbStrength: 0.25 });
+const STORAGE_KEY = 'webhid-wheel:v3:profiles';
+const manager = new WheelManager();
 
 const els = {
   panel: document.querySelector('#configPanel'),
-  connectWheel: document.querySelector('#connectWheelButton'),
-  connectDevice: document.querySelector('#connectDeviceButton'),
   disconnectAll: document.querySelector('#disconnectAllButton'),
   export: document.querySelector('#exportButton'),
   download: document.querySelector('#downloadButton'),
   status: document.querySelector('#statusText'),
-  deviceList: document.querySelector('#deviceList'),
-  deviceHint: document.querySelector('#deviceHint'),
   force: document.querySelector('#force'),
   forceValue: document.querySelector('#forceValue'),
   applyForce: document.querySelector('#applyForce'),
@@ -31,7 +27,6 @@ const els = {
 els.panel.manager = manager;
 els.panel.storageKey = STORAGE_KEY;
 
-let nextDevice = 2;
 let inputQueued = false;
 let lastReports = new Map();
 
@@ -51,26 +46,6 @@ function hex(value, width = 4) {
   return value.toString(16).padStart(width, '0');
 }
 
-function slug(value) {
-  return String(value || 'device').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'device';
-}
-
-function nextRoleFor(device) {
-  const base = slug(device && device.productName);
-  let role = base;
-  let suffix = 2;
-  while (manager.sessions.has(role) || role === 'wheel') {
-    role = `${base}-${suffix++}`;
-  }
-  return role;
-}
-
-function roleForConnection(prefix) {
-  let role = `${prefix}${nextDevice++}`;
-  while (manager.sessions.has(role) || role === 'wheel') role = `${prefix}${nextDevice++}`;
-  return role;
-}
-
 function looksLikeInput(device) {
   return (device && device.collections || []).some(collection =>
     (collection.usagePage === 0x01 && [0x04, 0x05, 0x08].includes(collection.usage)) ||
@@ -79,37 +54,7 @@ function looksLikeInput(device) {
 }
 
 function sessionForDevice(device) {
-  for (const entry of manager.sessions.values()) {
-    if (entry.session && entry.session.device === device) return entry;
-  }
-  return null;
-}
-
-async function connectWheel() {
-  els.connectWheel.disabled = true;
-  try {
-    const device = await manager.connectWheel();
-    if (device) setStatus(`Connected ${device.productName || 'wheel'}.`, 'ok');
-  } catch (error) {
-    setStatus(error instanceof Error ? error.message : String(error), 'warn');
-  } finally {
-    els.connectWheel.disabled = false;
-    renderDevices();
-  }
-}
-
-async function connectAdditional() {
-  els.connectDevice.disabled = true;
-  try {
-    const role = roleForConnection('device');
-    const device = await manager.addDevice(role);
-    if (device) setStatus(`Connected ${role}.`, 'ok');
-  } catch (error) {
-    setStatus(error instanceof Error ? error.message : String(error), 'warn');
-  } finally {
-    els.connectDevice.disabled = false;
-    renderDevices();
-  }
+  return manager.sessionList.find(entry => entry.device === device) || null;
 }
 
 async function restoreGrantedDevices() {
@@ -122,89 +67,23 @@ async function restoreGrantedDevices() {
     setStatus(`Could not restore granted devices: ${error.message}`, 'warn');
     return;
   }
-  if (!devices.length) return;
-
-  const store = safeLoadStore();
-  const active = store && store.activeProfile
-    ? store.profiles.find(profile => profile.profileName === store.activeProfile)
-    : null;
-
-  let wheelDevice = null;
-  if (active) {
-    wheelDevice = devices.find(device =>
-      device.vendorId === active.hardware.vendorId &&
-      device.productId === active.hardware.productId
-    ) || null;
-  }
-  if (!wheelDevice) {
-    wheelDevice = devices.find(device => isForceFeedbackWheel(device)) ||
-      devices.find(device => /wheel|racing|force|thrustmaster|logitech|fanatec/i.test(device.productName || '')) ||
-      null;
-  }
-
-  if (wheelDevice) {
-    try {
-      await manager.connectWheel(wheelDevice);
-      setStatus(`Restored ${wheelDevice.productName || 'wheel'}.`, 'ok');
-    } catch (error) {
-      setStatus(`Could not restore wheel: ${error.message}`, 'warn');
-    }
-  }
-
   for (const device of devices) {
-    if (device === wheelDevice || sessionForDevice(device)) continue;
+    if (sessionForDevice(device)) continue;
     try {
-      await manager.addDevice(nextRoleFor(device), device);
+      await manager.connect(device);
     } catch {
       // Granted devices can disappear between enumeration and open.
     }
   }
-  renderDevices();
+  updateActions();
 }
 
-function safeLoadStore() {
-  try {
-    return els.panel.profiles ? els.panel.profiles.loadStore() : null;
-  } catch {
-    return null;
-  }
-}
-
-function renderDevices() {
-  const items = [];
-  for (const [role, entry] of manager.sessions) {
-    const session = entry.session;
-    const connected = !!(session && session.isConnected);
-    const device = session && session.device;
-    const ffb = connected && device ? isForceFeedbackWheel(device) : false;
-    const name = (session && session.name) || 'Not connected';
-    items.push(`
-      <div class="device-card">
-        <div>
-          <div class="device-name">${escapeHtml(name)}</div>
-          <div class="device-meta">${escapeHtml(role)} · ${device ? `0x${hex(device.vendorId)}:0x${hex(device.productId)}` : 'no device'}</div>
-        </div>
-        <div class="device-badges">
-          <span class="badge ${connected ? (ffb ? 'ffb' : '') : 'off'}">${connected ? (ffb ? 'FFB' : 'input') : 'offline'}</span>
-          <button class="device-remove" type="button" data-role="${escapeHtml(role)}">Remove</button>
-        </div>
-      </div>
-    `);
-  }
-  els.deviceList.innerHTML = items.length ? items.join('') : '<p class="hint">No devices connected yet.</p>';
-  for (const button of els.deviceList.querySelectorAll('[data-role]')) {
-    button.addEventListener('click', async () => {
-      await manager.disconnect(button.dataset.role);
-      renderDevices();
-    });
-  }
-  const hasSessions = manager.sessions.size > 0;
-  els.export.disabled = !hasSessions;
-  els.download.disabled = !hasSessions;
-  els.disconnectAll.disabled = !hasSessions;
-  els.deviceHint.textContent = hasSessions
-    ? 'Connect another device to map pedals, button boxes or handbrakes.'
-    : 'Connect a wheel or an additional pedal/button device. Each Connect adds one device.';
+function updateActions() {
+  const sessions = manager.sessionList;
+  const connected = sessions.filter(entry => entry.session && entry.session.isConnected);
+  els.export.disabled = !sessions.length;
+  els.download.disabled = !sessions.length;
+  els.disconnectAll.disabled = !connected.length;
 }
 
 function polar(cx, cy, r, degrees) {
@@ -231,50 +110,57 @@ function scheduleInputUpdate() {
 }
 
 function updateWheelVisual() {
-  const wheel = manager.state.wheel;
-  const rotation = wheel && Number.isFinite(wheel.rotation) ? wheel.rotation : 0;
+  const steering = Number(manager.channels.steering) || 0;
+  const maxRotation = manager.getCalibration().maxRotation || 900;
+  const rotation = steering * maxRotation / 2;
   els.rim.setAttribute('transform', `rotate(${rotation + 180} 150 150)`);
   els.steerArc.setAttribute('d', arcPath(150, 150, 86, rotation));
   els.steerArc.style.opacity = Math.abs(rotation) < 0.5 ? '0' : '1';
   els.angleReadout.textContent = `${rotation >= 0 ? '+' : ''}${Math.round(rotation)}°`;
 
-  const session = manager.wheel;
-  if (session && session.isConnected) {
-    const ffb = session.ffbCaps && session.ffbCaps.constant;
-    els.wheelHint.textContent = `${session.name || 'Wheel'} · ${ffb ? 'constant force feedback' : 'input only'}`;
-    els.ffbHint.textContent = ffb ? 'Apply a low test force first.' : 'This device does not report constant force support.';
-    els.applyForce.disabled = !ffb;
+  const calibration = manager.getCalibration();
+  const source = manager.sessions.get(calibration.device);
+  const ffb = manager.getFfb();
+  const target = manager.sessions.get(ffb.device);
+  if (source && source.session && source.session.isConnected) {
+    els.wheelHint.textContent = `${source.name} · steering source`;
   } else {
-    els.wheelHint.textContent = 'Select a wheel from the panel above.';
-    els.ffbHint.textContent = 'Connect a force-feedback wheel to test output.';
+    els.wheelHint.textContent = 'Select a steering source in the panel.';
+  }
+  if (target && target.session && target.session.isConnected && target.capabilities.ffb) {
+    els.ffbHint.textContent = `${target.name} · force output`;
+    els.applyForce.disabled = false;
+  } else {
+    els.ffbHint.textContent = 'Connect a force-feedback device and select a force output.';
     els.applyForce.disabled = true;
   }
 }
 
-function sessionReports(session, role) {
-  if (role === 'wheel' && session.deviceState && session.deviceState.reports) {
-    return session.deviceState.reports;
+function reportMap(entry) {
+  const instance = entry.session;
+  if (!instance) return {};
+  if (entry.driver === 'wheel' && instance.deviceState && instance.deviceState.reports) {
+    return instance.deviceState.reports;
   }
-  const state = session.state;
-  return state && state.reports ? state.reports : {};
+  return instance.state && instance.state.reports ? instance.state.reports : {};
 }
 
 function updateDebug() {
-  const wheelEntry = manager.sessions.get('wheel');
-  if (!wheelEntry) {
+  const entry = manager.sessionList.find(item => Object.keys(reportMap(item)).length);
+  if (!entry) {
     els.debug.innerHTML = '<div class="dbg-empty">No data</div>';
     return;
   }
-  const reports = sessionReports(wheelEntry.session, 'wheel');
+  const reports = reportMap(entry);
   const parts = [];
   for (const [reportId, bytes] of Object.entries(reports)) {
-    const key = `wheel:${reportId}`;
+    const key = `${entry.id}:${reportId}`;
     const previous = lastReports.get(key);
     const cells = (bytes || []).map((byte, index) => {
       const changed = !previous || previous[index] !== byte;
       return `<span class="dbg-byte${changed ? ' chg' : ''}">${byte.toString(16).padStart(2, '0')}</span>`;
     }).join('');
-    parts.push(`<div class="dbg-head">report 0x${Number(reportId).toString(16)}</div><div class="dbg-grid">${cells}</div>`);
+    parts.push(`<div class="dbg-head">${escapeHtml(entry.name)} · report 0x${Number(reportId).toString(16)}</div><div class="dbg-grid">${cells}</div>`);
     lastReports.set(key, Array.from(bytes || []));
   }
   els.debug.innerHTML = parts.length ? parts.join('') : '<div class="dbg-empty">No input reports yet</div>';
@@ -302,41 +188,32 @@ function serializeCollections(device) {
   }));
 }
 
-function sessionState(session, role) {
-  const state = session.state || {};
-  return {
-    axes: state.axes || [],
-    rawAxes: state.rawAxes || (session.deviceState && session.deviceState.rawAxes) || [],
-    buttons: state.buttons || [],
-    hats: state.hats || [],
-    reports: sessionReports(session, role),
-    timestamp: state.timestamp || session.timestamp || null
-  };
-}
-
 function buildExport() {
-  const store = safeLoadStore();
+  const store = (() => {
+    try { return els.panel.profiles ? els.panel.profiles.loadStore() : null; } catch { return null; }
+  })();
   return {
     kind: 'webhid-device-capture',
-    schemaVersion: 2,
+    schemaVersion: 3,
     generatedAt: new Date().toISOString(),
     userAgent: navigator.userAgent,
-    devices: Array.from(manager.sessions.entries()).map(([role, entry]) => {
-      const session = entry.session;
-      const device = session.device;
-      return {
-        role,
-        vendorId: device ? device.vendorId : null,
-        productId: device ? device.productId : null,
-        productName: session.name || null,
-        signature: device && device.signature ? device.signature : null,
-        ffb: !!(device && isForceFeedbackWheel(device)),
-        collections: serializeCollections(device),
-        state: sessionState(session, role)
-      };
-    }),
+    devices: manager.sessionList.map(entry => ({
+      id: entry.id,
+      name: entry.name,
+      driver: entry.driver,
+      capabilities: entry.capabilities,
+      vendorId: entry.device ? entry.device.vendorId : null,
+      productId: entry.device ? entry.device.productId : null,
+      productName: entry.device ? entry.device.productName : null,
+      signature: entry.hardware ? entry.hardware.signature : null,
+      ffb: !!entry.capabilities.ffb,
+      collections: serializeCollections(entry.device),
+      state: entry.session ? entry.session.state : null,
+      genericState: entry.driver === 'wheel' && entry.session ? entry.session.deviceState : null,
+      reports: reportMap(entry)
+    })),
     profiles: store,
-    mappings: manager.getMapping()
+    mapping: manager.getMapping()
   };
 }
 
@@ -364,11 +241,9 @@ function downloadExport() {
   setStatus('JSON downloaded.', 'ok');
 }
 
-els.connectWheel.addEventListener('click', connectWheel);
-els.connectDevice.addEventListener('click', connectAdditional);
 els.disconnectAll.addEventListener('click', async () => {
   await manager.disconnectAll();
-  renderDevices();
+  updateActions();
   setStatus('All devices disconnected.', '');
 });
 els.export.addEventListener('click', copyExport);
@@ -379,11 +254,6 @@ els.force.addEventListener('input', () => {
 });
 
 els.applyForce.addEventListener('click', async () => {
-  const wheel = manager.wheel;
-  if (!wheel || !wheel.ffb || !wheel.ffbCaps || !wheel.ffbCaps.constant) {
-    els.ffbHint.textContent = 'No constant force feedback available.';
-    return;
-  }
   try {
     await manager.constantFast(Number(els.force.value) / 100);
     els.ffbHint.textContent = 'Test force applied. Stop if the wheel pulls unexpectedly.';
@@ -401,12 +271,12 @@ window.__webhidDemo = { manager, panel: els.panel };
 
 manager.on('input', scheduleInputUpdate);
 manager.on('connect', () => {
-  renderDevices();
+  updateActions();
   els.panel.refresh();
   scheduleInputUpdate();
 });
 manager.on('disconnect', () => {
-  renderDevices();
+  updateActions();
   els.panel.refresh();
   scheduleInputUpdate();
 });
@@ -427,12 +297,12 @@ if (navigator.hid && typeof navigator.hid.addEventListener === 'function') {
     setTimeout(restoreGrantedDevices, 50);
   });
   navigator.hid.addEventListener('disconnect', () => {
-    renderDevices();
+    updateActions();
     els.panel.refresh();
     scheduleInputUpdate();
   });
 }
 
-renderDevices();
+updateActions();
 updateWheelVisual();
 setTimeout(restoreGrantedDevices, 0);

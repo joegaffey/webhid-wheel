@@ -7,6 +7,17 @@ export class WebHIDSteeringConfig extends WebHIDElement {
     super();
     this._sync = false;
     this._settingsOverride = null;
+    this._boundManager = null;
+    this._managerHandler = () => this.refresh();
+  }
+
+  connectedCallback() {
+    super.connectedCallback();
+    this._bindManager();
+  }
+
+  disconnectedCallback() {
+    this._unbindManager();
   }
 
   set settings(value) {
@@ -18,10 +29,46 @@ export class WebHIDSteeringConfig extends WebHIDElement {
     return this._settingsOverride;
   }
 
+  set manager(value) {
+    if (this._manager === (value || null)) return;
+    this._unbindManager();
+    this._manager = value || null;
+    if (this.isConnected) {
+      this._bindManager();
+      this.refresh();
+    }
+  }
+
+  get manager() {
+    return this._manager;
+  }
+
+  _bindManager() {
+    if (!this._manager || this._boundManager === this._manager) return;
+    this._unbindManager();
+    if (typeof this._manager.on !== 'function') return;
+    this._manager.on('connect', this._managerHandler);
+    this._manager.on('disconnect', this._managerHandler);
+    this._manager.on('setup-applied', this._managerHandler);
+    this._boundManager = this._manager;
+  }
+
+  _unbindManager() {
+    if (!this._boundManager) return;
+    if (typeof this._boundManager.off === 'function') {
+      this._boundManager.off('connect', this._managerHandler);
+      this._boundManager.off('disconnect', this._managerHandler);
+      this._boundManager.off('setup-applied', this._managerHandler);
+    }
+    this._boundManager = null;
+  }
+
   css() {
     return `
       .section + .section { margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--wheel-border-color, #2a303a); }
       .check { display: flex; align-items: center; gap: 6px; margin: 6px 0; }
+      .device-field { display: grid; grid-template-columns: 1fr minmax(120px, 1.4fr); gap: 4px 8px; align-items: center; margin: 6px 0; }
+      .device-field label { color: var(--wheel-muted-color, #8f9bab); }
     `;
   }
 
@@ -30,6 +77,10 @@ export class WebHIDSteeringConfig extends WebHIDElement {
       <div class="panel">
         <div class="section">
           <h3>Steering</h3>
+          <div class="device-field">
+            <label for="steering-source">Steering source</label>
+            <select id="steering-source" data-role="steering-source"></select>
+          </div>
           <div class="field">
             <label for="max-rotation">Rotation range</label>
             <output data-out="max-rotation">900°</output>
@@ -49,6 +100,10 @@ export class WebHIDSteeringConfig extends WebHIDElement {
         </div>
         <div class="section">
           <h3>Force feedback</h3>
+          <div class="device-field">
+            <label for="ffb-target">Force output</label>
+            <select id="ffb-target" data-role="ffb-target"></select>
+          </div>
           <div class="field">
             <label for="gain">Force gain</label>
             <output data-out="gain">25%</output>
@@ -69,6 +124,18 @@ export class WebHIDSteeringConfig extends WebHIDElement {
       input.addEventListener('input', () => this._apply());
       input.addEventListener('change', () => this._apply());
     }
+    this.shadowRoot.querySelector('[data-role="steering-source"]').addEventListener('change', (event) => {
+      if (!this.manager || typeof this.manager.setMapping !== 'function') return;
+      this.manager.setMapping({ steering: { device: event.target.value || null } });
+      this.refresh();
+      this.emit('webhid-change', { settings: this.manager.getCalibration() });
+    });
+    this.shadowRoot.querySelector('[data-role="ffb-target"]').addEventListener('change', (event) => {
+      if (!this.manager || typeof this.manager.setFfb !== 'function') return;
+      this.manager.setFfb({ device: event.target.value || null });
+      this.refresh();
+      this.emit('webhid-change', { settings: this.manager.getFfb() });
+    });
     this.shadowRoot.querySelector('[data-action="stop"]').addEventListener('click', () => {
       if (this.manager && typeof this.manager.stop === 'function') this.manager.stop();
     });
@@ -112,10 +179,14 @@ export class WebHIDSteeringConfig extends WebHIDElement {
     const root = this.shadowRoot;
     if (!root) return;
     const out = (name) => root.querySelector(`[data-out="${name}"]`);
-    out('max-rotation').textContent = `${Math.round(values.maxRotation)}°`;
-    out('deadzone').textContent = `${Math.round(values.deadzone * 100)}%`;
-    out('saturation').textContent = `${Math.round(values.saturation * 100)}%`;
-    out('gain').textContent = `${Math.round(values.gain * 100)}%`;
+    const maxRotation = out('max-rotation');
+    const deadzone = out('deadzone');
+    const saturation = out('saturation');
+    const gain = out('gain');
+    if (maxRotation) maxRotation.textContent = `${Math.round(values.maxRotation)}°`;
+    if (deadzone) deadzone.textContent = `${Math.round(values.deadzone * 100)}%`;
+    if (saturation) saturation.textContent = `${Math.round(values.saturation * 100)}%`;
+    if (gain) gain.textContent = `${Math.round(values.gain * 100)}%`;
   }
 
   _apply() {
@@ -126,31 +197,69 @@ export class WebHIDSteeringConfig extends WebHIDElement {
       this.manager.setCalibration({
         deadzone: values.deadzone,
         saturation: values.saturation,
-        invert: values.invertSteering
+        invert: values.invertSteering,
+        maxRotation: values.maxRotation
       });
       this.manager.setFfb({ gain: values.gain, invert: values.invertForce });
-      if (this.manager.wheel) this.manager.wheel.maxRotation = values.maxRotation;
-      this.manager.maxRotation = values.maxRotation;
     }
     this.emit('webhid-change', { settings: values });
   }
 
+  _devices(predicate) {
+    const devices = [];
+    if (!this.manager || !this.manager.sessionList) return devices;
+    for (const entry of this.manager.sessionList) {
+      if (predicate(entry)) devices.push(entry);
+    }
+    return devices;
+  }
+
+  _fillSelect(select, devices, current, placeholder) {
+    if (!select) return;
+    const options = devices.map(device => `<option value="${escapeHtml(device.id)}"${device.id === current ? ' selected' : ''}>${escapeHtml(device.name || device.id)}</option>`);
+    if (current && !devices.some(device => device.id === current)) {
+      options.unshift(`<option value="${escapeHtml(current)}" selected>Missing device (${escapeHtml(current)})</option>`);
+    }
+    select.innerHTML = `<option value=""${current ? '' : ' selected'}>${placeholder}</option>${options.join('')}`;
+  }
+
   refresh() {
     if (!this.shadowRoot || !this.shadowRoot.querySelector('[data-setting="maxRotation"]')) return;
+    this._bindManager();
     const manager = this.manager;
-    const override = this._settingsOverride || {};
     const calibration = manager && typeof manager.getCalibration === 'function' ? manager.getCalibration() : {};
     const ffb = manager && typeof manager.getFfb === 'function' ? manager.getFfb() : {};
+    const override = this._settingsOverride || {};
     const values = {
-      maxRotation: manager && manager.maxRotation !== undefined ? manager.maxRotation : (override.maxRotation !== undefined ? override.maxRotation : DEFAULTS.maxRotation),
+      maxRotation: calibration.maxRotation !== undefined ? calibration.maxRotation : (override.maxRotation !== undefined ? override.maxRotation : DEFAULTS.maxRotation),
       deadzone: calibration.deadzone !== undefined ? calibration.deadzone : (override.deadzone !== undefined ? override.deadzone : DEFAULTS.deadzone),
       saturation: calibration.saturation !== undefined ? calibration.saturation : (override.saturation !== undefined ? override.saturation : DEFAULTS.saturation),
       invertSteering: calibration.invert !== undefined ? calibration.invert : (override.invertSteering !== undefined ? override.invertSteering : DEFAULTS.invertSteering),
       gain: ffb.gain !== undefined ? ffb.gain : (override.gain !== undefined ? override.gain : DEFAULTS.gain),
       invertForce: ffb.invert !== undefined ? ffb.invert : (override.invertForce !== undefined ? override.invertForce : DEFAULTS.invertForce)
     };
+
+    this._fillSelect(
+      this.shadowRoot.querySelector('[data-role="steering-source"]'),
+      this._devices(entry => entry.capabilities && entry.capabilities.steering),
+      calibration.device || null,
+      'No steering device'
+    );
+    this._fillSelect(
+      this.shadowRoot.querySelector('[data-role="ffb-target"]'),
+      this._devices(entry => entry.capabilities && entry.capabilities.ffb),
+      ffb.device || null,
+      'No force-feedback device'
+    );
+
     this._sync = true;
     this._write(values);
     this._sync = false;
   }
+}
+
+function escapeHtml(value) {
+  return String(value).replace(/[&<>"']/g, ch => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+  }[ch]));
 }

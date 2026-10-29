@@ -1,5 +1,4 @@
 import { WebHIDElement } from './base.js';
-import { isForceFeedbackWheel } from '../core/index.js';
 
 export class WebHIDDevicePicker extends WebHIDElement {
   constructor() {
@@ -42,12 +41,11 @@ export class WebHIDDevicePicker extends WebHIDElement {
 
   _unbindManager() {
     if (!this._boundManager) return;
-    const manager = this._boundManager;
-    if (typeof manager.off === 'function') {
-      manager.off('connect', this._managerHandler);
-      manager.off('disconnect', this._managerHandler);
-      manager.off('error', this._managerHandler);
-      manager.off('input', this._managerHandler);
+    if (typeof this._boundManager.off === 'function') {
+      this._boundManager.off('connect', this._managerHandler);
+      this._boundManager.off('disconnect', this._managerHandler);
+      this._boundManager.off('error', this._managerHandler);
+      this._boundManager.off('input', this._managerHandler);
     }
     this._boundManager = null;
   }
@@ -55,21 +53,23 @@ export class WebHIDDevicePicker extends WebHIDElement {
   _bindManager() {
     if (!this._manager || this._boundManager === this._manager) return;
     this._unbindManager();
-    const manager = this._manager;
-    if (typeof manager.on === 'function') {
-      manager.on('connect', this._managerHandler);
-      manager.on('disconnect', this._managerHandler);
-      manager.on('error', this._managerHandler);
-      manager.on('input', this._managerHandler);
-      this._boundManager = manager;
-    }
+    if (typeof this._manager.on !== 'function') return;
+    this._manager.on('connect', this._managerHandler);
+    this._manager.on('disconnect', this._managerHandler);
+    this._manager.on('error', this._managerHandler);
+    this._manager.on('input', this._managerHandler);
+    this._boundManager = this._manager;
   }
 
   css() {
     return `
       .head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 6px; }
       .device-name { color: var(--wheel-fg-color, #e6e8eb); }
-      .role { color: var(--wheel-muted-color, #8f9bab); font-size: 10px; text-transform: uppercase; letter-spacing: .06em; }
+      .device-id { color: var(--wheel-muted-color, #8f9bab); font-size: 10px; }
+      .caps { display: flex; gap: 4px; flex-wrap: wrap; justify-content: flex-end; }
+      .cap { font-size: 9px; border: 1px solid var(--wheel-border-color, #2a303a); border-radius: 999px; padding: 1px 5px; color: var(--wheel-muted-color, #8f9bab); }
+      .cap.on { color: var(--wheel-success, #34d399); border-color: currentColor; }
+      .remove { min-height: 22px; padding: 2px 6px; }
     `;
   }
 
@@ -77,14 +77,14 @@ export class WebHIDDevicePicker extends WebHIDElement {
     return `
       <div class="panel">
         <div class="head">
-          <h3>Wheel device</h3>
+          <h3>Devices</h3>
           <span class="badge" data-role="hid-state"></span>
         </div>
         <div class="status" data-role="status" aria-live="polite"></div>
         <div class="list" data-role="list"></div>
         <div class="actions">
-          <button class="primary" type="button" data-action="connect">Connect wheel</button>
-          <button type="button" data-action="disconnect">Disconnect</button>
+          <button class="primary" type="button" data-action="connect">Connect device</button>
+          <button type="button" data-action="disconnect-all">Disconnect all</button>
         </div>
       </div>
     `;
@@ -93,7 +93,11 @@ export class WebHIDDevicePicker extends WebHIDElement {
   bind() {
     const root = this.shadowRoot;
     root.querySelector('[data-action="connect"]').addEventListener('click', () => this._connect());
-    root.querySelector('[data-action="disconnect"]').addEventListener('click', () => this._disconnect());
+    root.querySelector('[data-action="disconnect-all"]').addEventListener('click', () => this._disconnectAll());
+    root.querySelector('[data-role="list"]').addEventListener('click', (event) => {
+      const button = event.target.closest('[data-remove]');
+      if (button) this._disconnect(button.dataset.remove);
+    });
   }
 
   async _connect() {
@@ -101,9 +105,9 @@ export class WebHIDDevicePicker extends WebHIDElement {
     this._busy = true;
     this.refresh();
     try {
-      const device = await this.manager.connectWheel();
-      if (device) {
-        this.emit('webhid-connect', { role: 'wheel', device });
+      const session = await this.manager.connect();
+      if (session) {
+        this.emit('webhid-connect', { session, device: session.device });
       } else {
         this.emit('webhid-authorization-required', {
           filters: (this.manager.options && this.manager.options.filters) || []
@@ -117,12 +121,26 @@ export class WebHIDDevicePicker extends WebHIDElement {
     }
   }
 
-  async _disconnect() {
+  async _disconnect(id) {
     if (!this.manager || this._busy) return;
     this._busy = true;
     this.refresh();
     try {
-      await this.manager.disconnect('wheel');
+      await this.manager.disconnect(id);
+    } catch (error) {
+      this.emit('webhid-error', { error });
+    } finally {
+      this._busy = false;
+      this.refresh();
+    }
+  }
+
+  async _disconnectAll() {
+    if (!this.manager || this._busy) return;
+    this._busy = true;
+    this.refresh();
+    try {
+      await this.manager.disconnectAll();
     } catch (error) {
       this.emit('webhid-error', { error });
     } finally {
@@ -137,54 +155,54 @@ export class WebHIDDevicePicker extends WebHIDElement {
 
     const hid = typeof navigator !== 'undefined' ? navigator.hid : null;
     const available = !!(hid && typeof hid.requestDevice === 'function');
-    const connected = !!(this.manager && this.manager.isConnected);
+    const list = this.shadowRoot.querySelector('[data-role="list"]');
     const status = this.shadowRoot.querySelector('[data-role="status"]');
     const state = this.shadowRoot.querySelector('[data-role="hid-state"]');
-    const list = this.shadowRoot.querySelector('[data-role="list"]');
     const connect = this.shadowRoot.querySelector('[data-action="connect"]');
-    const disconnect = this.shadowRoot.querySelector('[data-action="disconnect"]');
+    const disconnectAll = this.shadowRoot.querySelector('[data-action="disconnect-all"]');
+    const sessions = this.manager ? this.manager.sessionList : [];
+    const connected = sessions.filter(entry => entry.session && entry.session.isConnected);
 
     state.textContent = available ? 'WebHID available' : 'WebHID unavailable';
-    state.classList.toggle('ready', available);
-
     if (!this.manager) {
       status.textContent = 'No wheel manager configured.';
       status.className = 'status error';
     } else if (!available) {
       status.textContent = 'WebHID is not available in this browser. Keyboard, gamepad and touch input continue in the host app.';
       status.className = 'status error';
-    } else if (connected) {
-      const wheel = this.manager.wheel;
-      const language = wheel && wheel.ffbCaps && wheel.ffbCaps.any ? 'Force feedback available.' : 'Input only; no force feedback reported.';
-      status.textContent = `${wheel && wheel.name ? wheel.name : 'Wheel connected'}\n${language}`;
+    } else if (connected.length) {
+      status.textContent = `${connected.length} device${connected.length === 1 ? '' : 's'} connected.`;
       status.className = 'status ready';
     } else {
-      status.textContent = 'No wheel connected. Connect from a user gesture to grant WebHID permission.';
+      status.textContent = 'No devices connected. Connect from a user gesture to grant WebHID permission.';
       status.className = 'status';
     }
 
-    connect.disabled = !this.manager || !available || connected || this._busy;
-    connect.textContent = this._busy ? 'Connecting…' : 'Connect wheel';
-    disconnect.disabled = !this.manager || !connected || this._busy;
+    connect.disabled = !this.manager || !available || this._busy;
+    connect.textContent = this._busy ? 'Connecting…' : 'Connect device';
+    disconnectAll.disabled = !this.manager || !connected.length || this._busy;
 
-    const items = [];
-    const sessions = this.manager ? this.manager.sessions : new Map();
-    for (const [role, entry] of sessions) {
-      const session = entry.session;
-      const active = !!(session && session.isConnected);
-      const name = session && session.name ? session.name : 'Not connected';
-      const ffb = active && session && session.device ? isForceFeedbackWheel(session.device) : false;
-      items.push(`
-        <div class="list-item">
-          <div>
-            <div class="role">${escapeHtml(role)}</div>
-            <div class="device-name">${escapeHtml(name)}</div>
+    list.innerHTML = sessions.length
+      ? sessions.map(entry => {
+        const caps = entry.capabilities || {};
+        const isConnected = !!(entry.session && entry.session.isConnected);
+        return `
+          <div class="list-item">
+            <div>
+              <div class="device-name">${escapeHtml(entry.name || entry.id)}</div>
+              <div class="device-id">${escapeHtml(entry.id)} · ${escapeHtml(entry.driver)}</div>
+            </div>
+            <div class="caps">
+              <span class="cap ${isConnected ? 'on' : ''}">${isConnected ? 'on' : 'off'}</span>
+              <span class="cap ${caps.steering ? 'on' : ''}">steering</span>
+              <span class="cap ${caps.ffb ? 'on' : ''}">FFB</span>
+              <span class="cap ${caps.axes || caps.buttons || caps.hats ? 'on' : ''}">input</span>
+              <button class="remove" type="button" data-remove="${escapeHtml(entry.id)}"${isConnected ? '' : ' disabled'}>Remove</button>
+            </div>
           </div>
-          <span class="badge">${active ? (ffb ? 'FFB' : 'input') : 'offline'}</span>
-        </div>
-      `);
-    }
-    list.innerHTML = items.length ? items.join('') : '<div class="muted">No sessions yet.</div>';
+        `;
+      }).join('')
+      : '<div class="muted">No devices yet.</div>';
   }
 }
 

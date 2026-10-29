@@ -115,8 +115,6 @@
           Needs a <a href="https://caniuse.com/webhid">WebHID-capable browser</a>.
         </p>
         <div class="toolbar">
-          <button id="connectWheelButton" class="button primary">Connect wheel</button>
-          <button id="connectDeviceButton" class="button">Add device</button>
           <button id="disconnectAllButton" class="button">Disconnect all</button>
           <button id="exportButton" class="button" disabled>Copy JSON</button>
           <button id="downloadButton" class="button" disabled>Download JSON</button>
@@ -126,13 +124,7 @@
 
       <div class="layout">
         <div class="stack">
-          <section class="panel">
-            <h2>Devices</h2>
-            <div id="deviceList" class="device-list"></div>
-            <p class="hint" id="deviceHint">Connect a wheel or an additional pedal/button device. Each Connect adds one device.</p>
-          </section>
-
-          <webhid-config-panel id="configPanel" storage-key="webhid-wheel:v2:profiles">
+          <webhid-config-panel id="configPanel" storage-key="webhid-wheel:v3:profiles">
             <div slot="extra-settings" class="extra-settings">
               <div class="panel">
                 <h2>Force feedback test</h2>

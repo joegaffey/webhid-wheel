@@ -1,6 +1,6 @@
 export const PROFILE_KIND = 'webhid-wheel-profile';
 export const PROFILE_STORE_KIND = 'webhid-wheel-profile-store';
-export const PROFILE_SCHEMA_VERSION = 1;
+export const PROFILE_SCHEMA_VERSION = 2;
 
 const DEFAULT_STEERING = {
   deadzone: 0,
@@ -40,8 +40,7 @@ function numberValue(value, path, fallback, min, max) {
   if (typeof value !== 'number' || !Number.isFinite(value)) {
     fail(path, 'must be a finite number');
   }
-  const clamped = Math.min(max, Math.max(min, value));
-  return clamped;
+  return Math.min(max, Math.max(min, value));
 }
 
 function booleanValue(value, path, fallback) {
@@ -50,22 +49,42 @@ function booleanValue(value, path, fallback) {
   return value;
 }
 
-function hardwareValue(raw) {
-  if (!isObject(raw)) fail('hardware', 'is required');
+function hardwareValue(raw, path = 'hardware') {
+  if (!isObject(raw)) fail(path, 'is required');
   const vendorId = raw.vendorId;
   const productId = raw.productId;
   if (!Number.isInteger(vendorId) || vendorId < 0 || vendorId > 0xffff) {
-    fail('hardware.vendorId', 'must be an integer in 0..65535');
+    fail(`${path}.vendorId`, 'must be an integer in 0..65535');
   }
   if (!Number.isInteger(productId) || productId < 0 || productId > 0xffff) {
-    fail('hardware.productId', 'must be an integer in 0..65535');
+    fail(`${path}.productId`, 'must be an integer in 0..65535');
   }
   const productName = typeof raw.productName === 'string' ? raw.productName : '';
   const signature = typeof raw.signature === 'string' && raw.signature ? raw.signature : null;
   return { vendorId, productId, productName, signature };
 }
 
-function axisEntryValue(raw, path) {
+function deviceValue(raw, path) {
+  if (!isObject(raw)) fail(path, 'must be an object');
+  const alias = typeof raw.alias === 'string' && raw.alias ? raw.alias : null;
+  if (!alias) fail(`${path}.alias`, 'must be a non-empty string');
+  const driver = raw.driver === 'generic' ? 'generic' : 'wheel';
+  return {
+    alias,
+    driver,
+    hardware: hardwareValue(raw.hardware, `${path}.hardware`)
+  };
+}
+
+function aliasReference(value, path, aliases, fallback) {
+  const alias = value === undefined || value === null || value === '' ? fallback : value;
+  if (typeof alias !== 'string' || !aliases.has(alias)) {
+    fail(path, `must reference one of: ${Array.from(aliases).join(', ')}`);
+  }
+  return alias;
+}
+
+function axisEntryValue(raw, path, aliases, fallbackAlias) {
   if (!isObject(raw)) fail(path, 'must be an object');
   if (raw.source !== 'axis') fail(`${path}.source`, 'must be "axis"');
   if (!Number.isInteger(raw.index) || raw.index < 0) {
@@ -84,7 +103,7 @@ function axisEntryValue(raw, path) {
   const saturation = numberValue(raw.saturation, `${path}.saturation`, 1, 0.05, 1);
   if (saturation <= deadzone) fail(`${path}.saturation`, 'must be greater than deadzone');
   return {
-    device: typeof raw.device === 'string' && raw.device ? raw.device : 'wheel',
+    device: aliasReference(raw.device, `${path}.device`, aliases, fallbackAlias),
     source: 'axis',
     index: raw.index,
     invert: booleanValue(raw.invert, `${path}.invert`, false),
@@ -96,7 +115,7 @@ function axisEntryValue(raw, path) {
   };
 }
 
-function buttonEntryValue(raw, path) {
+function buttonEntryValue(raw, path, aliases, fallbackAlias) {
   if (!isObject(raw)) fail(path, 'must be an object');
   if (raw.source !== 'button' && raw.source !== 'hat') {
     fail(`${path}.source`, 'must be "button" or "hat"');
@@ -105,7 +124,7 @@ function buttonEntryValue(raw, path) {
     fail(`${path}.index`, 'must be a non-negative integer');
   }
   const entry = {
-    device: typeof raw.device === 'string' && raw.device ? raw.device : 'wheel',
+    device: aliasReference(raw.device, `${path}.device`, aliases, fallbackAlias),
     source: raw.source,
     index: raw.index
   };
@@ -118,40 +137,33 @@ function buttonEntryValue(raw, path) {
   return entry;
 }
 
-function mapEntries(raw, path, normalizeEntry) {
+function mapEntries(raw, path, aliases, fallbackAlias, normalizeEntry) {
   if (raw === undefined || raw === null) return {};
   if (!isObject(raw)) fail(path, 'must be an object');
   const out = {};
   for (const [key, value] of Object.entries(raw)) {
-    out[key] = normalizeEntry(value, `${path}.${key}`);
+    out[key] = normalizeEntry(value, `${path}.${key}`, aliases, fallbackAlias);
   }
   return out;
 }
 
-function steeringValue(raw) {
+function steeringValue(raw, aliases, fallbackAlias) {
   const source = isObject(raw) ? raw : {};
-  const deadzone = numberValue(source.deadzone, 'settings.steering.deadzone', DEFAULT_STEERING.deadzone, 0, 0.5);
-  const saturation = numberValue(source.saturation, 'settings.steering.saturation', DEFAULT_STEERING.saturation, 0.05, 1);
-  if (saturation <= deadzone) {
-    fail('settings.steering.saturation', 'must be greater than deadzone');
-  }
   return {
-    deadzone,
-    saturation,
+    device: aliasReference(source.device, 'settings.steering.device', aliases, fallbackAlias),
+    deadzone: numberValue(source.deadzone, 'settings.steering.deadzone', DEFAULT_STEERING.deadzone, 0, 0.5),
+    saturation: numberValue(source.saturation, 'settings.steering.saturation', DEFAULT_STEERING.saturation, 0.05, 1),
     maxRotation: numberValue(source.maxRotation, 'settings.steering.maxRotation', DEFAULT_STEERING.maxRotation, 40, 1800),
     invert: booleanValue(source.invert, 'settings.steering.invert', DEFAULT_STEERING.invert)
   };
 }
 
-function ffbValue(raw) {
+function ffbValue(raw, aliases, fallbackAlias) {
   const source = isObject(raw) ? raw : {};
-  let gain = source.gain;
-  if (gain === undefined) gain = source.ffbGain;
-  if (gain !== undefined && gain > 1) gain = gain / 100;
-  if (gain === undefined) gain = source.strength;
   return {
-    gain: numberValue(gain, 'settings.ffb.gain', DEFAULT_FFB.gain, 0, 1),
-    invert: booleanValue(source.invert !== undefined ? source.invert : source.invertForce, 'settings.ffb.invert', DEFAULT_FFB.invert)
+    device: aliasReference(source.device, 'settings.ffb.device', aliases, fallbackAlias),
+    gain: numberValue(source.gain, 'settings.ffb.gain', DEFAULT_FFB.gain, 0, 1),
+    invert: booleanValue(source.invert, 'settings.ffb.invert', DEFAULT_FFB.invert)
   };
 }
 
@@ -171,61 +183,122 @@ function metadataValue(raw, legacy) {
   return metadata;
 }
 
+function profileName(value) {
+  const name = String(value.profileName || value.name || 'Imported profile').trim();
+  if (!name) fail('profileName', 'must not be empty');
+  return name;
+}
+
+function normalizeDevices(rawDevices) {
+  if (!Array.isArray(rawDevices) || !rawDevices.length) {
+    fail('devices', 'must be a non-empty array');
+  }
+  const devices = rawDevices.map((raw, index) => {
+    if (!isObject(raw)) fail(`devices[${index}]`, 'must be an object');
+    return deviceValue({
+      ...raw,
+      alias: raw.alias || `d${index + 1}`
+    }, `devices[${index}]`);
+  });
+  const aliases = new Set();
+  for (const device of devices) {
+    if (aliases.has(device.alias)) fail('devices', `duplicate alias "${device.alias}"`);
+    aliases.add(device.alias);
+  }
+  return { devices, aliases };
+}
+
+function normalizeModern(value, options = {}) {
+  const { devices, aliases } = normalizeDevices(value.devices);
+  const fallbackAlias = devices[0].alias;
+  const settings = isObject(value.settings) ? value.settings : {};
+  const profile = {
+    kind: PROFILE_KIND,
+    schemaVersion: PROFILE_SCHEMA_VERSION,
+    profileName: profileName(value),
+    devices,
+    settings: {
+      steering: steeringValue(settings.steering, aliases, fallbackAlias),
+      ffb: ffbValue(settings.ffb, aliases, fallbackAlias),
+      axes: mapEntries(settings.axes, 'settings.axes', aliases, fallbackAlias, axisEntryValue),
+      buttons: mapEntries(settings.buttons, 'settings.buttons', aliases, fallbackAlias, buttonEntryValue)
+    },
+    metadata: metadataValue(value.metadata, value)
+  };
+  return profile;
+}
+
 function legacySettings(value) {
   return isObject(value.settings) ? value.settings : value;
 }
 
-export function normalizeProfile(value, options = {}) {
-  if (!isObject(value)) fail('profile', 'must be an object');
-
+function normalizeLegacy(value, options = {}) {
   const legacy = legacySettings(value);
   const settings = isObject(value.settings) ? value.settings : {};
-  const hasModernSettings = value.kind === PROFILE_KIND ||
-    isObject(settings.steering) || isObject(settings.ffb);
   const hardwareSource = isObject(value.hardware) ? value.hardware : options.hardware;
-  const hardware = hardwareValue(hardwareSource);
+  const alias = 'd1';
+  const aliases = new Set([alias]);
+  const devices = [{
+    alias,
+    driver: 'wheel',
+    hardware: hardwareValue(hardwareSource)
+  }];
 
-  const profileName = String(value.profileName || value.name || 'Imported profile').trim();
-  if (!profileName) fail('profileName', 'must not be empty');
+  const oldMappings = isObject(value.mappings) ? value.mappings : {};
+  const axesSource = (isObject(settings.axes) ? settings.axes : oldMappings.axes) || legacy.axes || {};
+  const buttonsSource = (isObject(settings.buttons) ? settings.buttons : oldMappings.buttons) || legacy.buttons || {};
+  const unbound = [];
 
-  const steeringSource = hasModernSettings
-    ? settings.steering
-    : {
-        deadzone: legacy.deadzone !== undefined ? legacy.deadzone : legacy.steeringDeadzone,
-        saturation: legacy.saturation,
-        maxRotation: legacy.maxRotation,
-        invert: legacy.invertSteering !== undefined ? legacy.invertSteering : legacy.invert
-      };
-
-  const ffbSource = hasModernSettings
-    ? settings.ffb
-    : {
-        gain: legacy.ffbGain !== undefined ? legacy.ffbGain : (legacy.strength !== undefined ? legacy.strength : legacy.ffbStrength),
-        invert: legacy.invertForce !== undefined ? legacy.invertForce : legacy.invert
-      };
-
-  const axesSource = hasModernSettings
-    ? settings.axes
-    : (value.mappings && value.mappings.axes) || legacy.axes;
-  const buttonsSource = hasModernSettings
-    ? settings.buttons
-    : (value.mappings && value.mappings.buttons) || legacy.buttons;
-
-  const normalized = {
-    kind: PROFILE_KIND,
-    schemaVersion: PROFILE_SCHEMA_VERSION,
-    profileName,
-    hardware,
-    settings: {
-      steering: steeringValue(steeringSource),
-      ffb: ffbValue(ffbSource),
-      axes: mapEntries(axesSource, 'settings.axes', axisEntryValue),
-      buttons: mapEntries(buttonsSource, 'settings.buttons', buttonEntryValue)
-    },
-    metadata: metadataValue(value.metadata, legacy)
+  const bindLegacyEntries = (entries, path, normalize) => {
+    const out = {};
+    for (const [key, entry] of Object.entries(entries || {})) {
+      if (!isObject(entry)) continue;
+      const device = entry.device;
+      if (device && device !== 'wheel' && !aliases.has(device)) {
+        unbound.push({ channel: key, path, device });
+        continue;
+      }
+      out[key] = normalize({ ...entry, device: alias }, `${path}.${key}`, aliases, alias);
+    }
+    return out;
   };
 
-  return normalized;
+  const axes = bindLegacyEntries(axesSource, 'settings.axes', axisEntryValue);
+  const buttons = bindLegacyEntries(buttonsSource, 'settings.buttons', buttonEntryValue);
+  const metadata = metadataValue(value.metadata, legacy);
+  if (unbound.length) metadata.legacyUnboundMappings = unbound;
+
+  const v1Steering = isObject(settings.steering) ? settings.steering : {};
+  const v1Ffb = isObject(settings.ffb) ? settings.ffb : {};
+  return {
+    kind: PROFILE_KIND,
+    schemaVersion: PROFILE_SCHEMA_VERSION,
+    profileName: profileName(value),
+    devices,
+    settings: {
+      steering: steeringValue({
+        deadzone: v1Steering.deadzone !== undefined ? v1Steering.deadzone : (legacy.deadzone !== undefined ? legacy.deadzone : legacy.steeringDeadzone),
+        saturation: v1Steering.saturation !== undefined ? v1Steering.saturation : legacy.saturation,
+        maxRotation: v1Steering.maxRotation !== undefined ? v1Steering.maxRotation : legacy.maxRotation,
+        invert: v1Steering.invert !== undefined ? v1Steering.invert : (legacy.invertSteering !== undefined ? legacy.invertSteering : legacy.invert),
+        device: alias
+      }, aliases, alias),
+      ffb: ffbValue({
+        gain: v1Ffb.gain !== undefined ? v1Ffb.gain : (legacy.ffbGain !== undefined ? legacy.ffbGain : (legacy.strength !== undefined ? legacy.strength : legacy.ffbStrength)),
+        invert: v1Ffb.invert !== undefined ? v1Ffb.invert : (legacy.invertForce !== undefined ? legacy.invertForce : legacy.invert),
+        device: alias
+      }, aliases, alias),
+      axes,
+      buttons
+    },
+    metadata
+  };
+}
+
+export function normalizeProfile(value, options = {}) {
+  if (!isObject(value)) fail('profile', 'must be an object');
+  if (Array.isArray(value.devices)) return normalizeModern(value, options);
+  return normalizeLegacy(value, options);
 }
 
 export function validateProfile(value, options = {}) {
@@ -233,10 +306,9 @@ export function validateProfile(value, options = {}) {
 }
 
 export function migrateProfile(value, options = {}) {
-  if (isObject(value) && value.kind === PROFILE_KIND) {
-    if (value.schemaVersion !== PROFILE_SCHEMA_VERSION) {
-      fail('schemaVersion', `unsupported profile version ${value.schemaVersion}`);
-    }
+  if (isObject(value) && value.kind === PROFILE_KIND &&
+      value.schemaVersion !== undefined && value.schemaVersion > PROFILE_SCHEMA_VERSION) {
+    fail('schemaVersion', `unsupported profile version ${value.schemaVersion}`);
   }
   return normalizeProfile(value, options);
 }
@@ -266,42 +338,62 @@ export function parseProfile(text, options = {}) {
 
 export function profileFilters(profile) {
   const normalized = validateProfile(profile);
-  return [{
-    vendorId: normalized.hardware.vendorId,
-    productId: normalized.hardware.productId
-  }];
+  return normalized.devices.map(device => ({
+    vendorId: device.hardware.vendorId,
+    productId: device.hardware.productId
+  }));
+}
+
+function candidatesFor(device, devices) {
+  const hardware = device.hardware;
+  const candidates = (Array.isArray(devices) ? devices : []).filter(item =>
+    item &&
+    item.vendorId === hardware.vendorId &&
+    item.productId === hardware.productId
+  );
+  if (hardware.signature) {
+    return candidates.filter(item => item.signature === hardware.signature);
+  }
+  return candidates;
 }
 
 export function matchProfile(profile, devices) {
   const normalized = validateProfile(profile);
-  const candidates = (Array.isArray(devices) ? devices : []).filter(device =>
-    device &&
-    device.vendorId === normalized.hardware.vendorId &&
-    device.productId === normalized.hardware.productId
-  );
+  const matches = {};
+  const missing = [];
+  const ambiguous = [];
 
-  if (!candidates.length) {
-    return { status: 'authorization-required', filters: profileFilters(normalized) };
+  for (const device of normalized.devices) {
+    const candidates = candidatesFor(device, devices);
+    if (candidates.length === 0) {
+      missing.push({ alias: device.alias, hardware: device.hardware });
+    } else if (candidates.length === 1) {
+      matches[device.alias] = candidates[0];
+    } else {
+      ambiguous.push({ alias: device.alias, candidates });
+    }
   }
 
-  if (normalized.hardware.signature) {
-    const exact = candidates.find(device => device.signature === normalized.hardware.signature);
-    if (exact) return { status: 'matched', device: exact };
-  }
+  let status = 'matched';
+  if (ambiguous.length) status = 'ambiguous';
+  else if (missing.length) status = Object.keys(matches).length ? 'partial' : 'authorization-required';
 
-  if (candidates.length === 1) {
-    return { status: 'matched', device: candidates[0] };
-  }
-
-  return { status: 'ambiguous', candidates };
+  return {
+    status,
+    matches,
+    missing,
+    ambiguous,
+    filters: missing.map(item => ({
+      vendorId: item.hardware.vendorId,
+      productId: item.hardware.productId
+    }))
+  };
 }
 
 export async function reconnectProfile(manager, profile, options = {}) {
   const normalized = validateProfile(profile);
   const getDevices = options.getDevices;
-  if (typeof getDevices !== 'function') {
-    throw new Error('getDevices function is required');
-  }
+  if (typeof getDevices !== 'function') throw new Error('getDevices function is required');
 
   let devices;
   try {
@@ -311,33 +403,33 @@ export async function reconnectProfile(manager, profile, options = {}) {
   }
 
   const result = matchProfile(normalized, devices);
-  if (result.status !== 'matched') return result;
+  if (result.status === 'ambiguous') return result;
 
   try {
-    if (typeof manager.connectWheel === 'function') {
-      await manager.connectWheel(result.device);
-    } else if (typeof manager.connect === 'function') {
-      await manager.connect(result.device);
-    } else {
-      throw new Error('manager cannot connect a wheel');
+    for (const [alias, device] of Object.entries(result.matches)) {
+      const profileDevice = normalized.devices.find(item => item.alias === alias);
+      if (typeof manager.connect === 'function') {
+        await manager.connect(device, profileDevice ? { driver: profileDevice.driver } : {});
+      } else if (typeof manager.connectWheel === 'function') {
+        await manager.connectWheel(device);
+      }
     }
-    return { status: 'connected', device: result.device };
+    if (typeof manager.applySetup === 'function') manager.applySetup(normalized);
+    return { ...result, status: result.status === 'partial' ? 'partial' : 'connected' };
   } catch (error) {
-    return { status: 'error', error };
+    return { ...result, status: 'error', error };
   }
 }
 
 export function validateStore(value) {
   if (!isObject(value)) fail('store', 'must be an object');
   if (value.kind !== PROFILE_STORE_KIND) fail('store.kind', `must be "${PROFILE_STORE_KIND}"`);
-  if (value.schemaVersion !== PROFILE_SCHEMA_VERSION) {
+  if (value.schemaVersion !== 1 && value.schemaVersion !== PROFILE_SCHEMA_VERSION) {
     fail('store.schemaVersion', `unsupported store version ${value.schemaVersion}`);
   }
   if (!Array.isArray(value.profiles)) fail('store.profiles', 'must be an array');
 
-  const profiles = value.profiles.map((profile, index) =>
-    validateProfile(profile)
-  );
+  const profiles = value.profiles.map(profile => validateProfile(profile));
   const names = new Set();
   for (const profile of profiles) {
     if (names.has(profile.profileName)) {
@@ -380,41 +472,15 @@ export class SetupProfileManager {
     this.store = options.store || null;
   }
 
-  validate(value, options) {
-    return validateProfile(value, options);
-  }
-
-  migrate(value, options) {
-    return migrateProfile(value, options);
-  }
-
-  serialize(profile) {
-    return serializeProfile(profile);
-  }
-
-  parse(text, options) {
-    return parseProfile(text, options);
-  }
-
-  match(profile, devices) {
-    return matchProfile(profile, devices);
-  }
-
-  reconnect(manager, profile, options) {
-    return reconnectProfile(manager, profile, options);
-  }
-
-  validateStore(value) {
-    return validateStore(value);
-  }
-
-  serializeStore(value) {
-    return serializeStore(value);
-  }
-
-  parseStore(text) {
-    return parseStore(text);
-  }
+  validate(value, options) { return validateProfile(value, options); }
+  migrate(value, options) { return migrateProfile(value, options); }
+  serialize(profile) { return serializeProfile(profile); }
+  parse(text, options) { return parseProfile(text, options); }
+  match(profile, devices) { return matchProfile(profile, devices); }
+  reconnect(manager, profile, options) { return reconnectProfile(manager, profile, options); }
+  validateStore(value) { return validateStore(value); }
+  serializeStore(value) { return serializeStore(value); }
+  parseStore(text) { return parseStore(text); }
 
   toProfile(manager, options = {}) {
     if (manager && typeof manager.toSetup === 'function') {

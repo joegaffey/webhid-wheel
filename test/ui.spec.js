@@ -168,34 +168,117 @@ test('demo renders a connected wheel, input and a saved setup profile', async ({
       async close() { this.opened = false; },
       async sendReport() {}
     };
-    await manager.connectWheel(fake);
+    const entry = await manager.connect(fake);
     const data = new DataView(Uint8Array.from([0xff, 0xff, 0xff, 0x00, 0x10]).buffer);
     fake.oninputreport({ data, timeStamp: performance.now(), reportId: 1 });
     return {
       connected: manager.isConnected,
-      name: manager.wheel && manager.wheel.name,
-      rotation: manager.state.wheel && manager.state.wheel.rotation
+      name: entry && entry.name,
+      steering: manager.channels.steering,
+      deviceId: entry && entry.id
     };
   });
 
   expect(connected.connected).toBe(true);
   expect(connected.name).toBe('Fake Test Wheel');
-  expect(connected.rotation).toBeCloseTo(450, 0);
+  expect(connected.steering).toBe(1);
+  expect(connected.deviceId).toBeTruthy();
 
-  await expect(page.locator('#deviceList')).toContainText('Fake Test Wheel');
+  await expect(page.locator('webhid-config-panel').locator('webhid-device-picker')).toContainText('Fake Test Wheel');
   await expect(page.locator('#angleReadout')).toContainText('+450');
   await expect(page.locator('webhid-config-panel').locator('[data-action="save"]')).toBeEnabled();
 
   await page.locator('webhid-config-panel').locator('[data-role="name"]').fill('E2E Setup');
   await page.locator('webhid-config-panel').locator('[data-action="save"]').click();
   const stored = await page.evaluate(() => {
-    const raw = localStorage.getItem('webhid-wheel:v2:profiles');
+    const raw = localStorage.getItem('webhid-wheel:v3:profiles');
     return raw ? JSON.parse(raw) : null;
   });
   expect(stored.activeProfile).toBe('E2E Setup');
-  expect(stored.profiles[0].hardware.vendorId).toBe(0x1234);
+  expect(stored.schemaVersion).toBe(2);
+  expect(stored.profiles[0].devices[0].hardware.vendorId).toBe(0x1234);
   expect(stored.profiles[0].settings.steering.maxRotation).toBe(900);
 
   await page.locator('#exportButton').click();
   await expect(page.locator('#exportText')).toHaveValue(/Fake Test Wheel/);
+});
+
+test('mapping controls list connected device names and never a synthetic wheel role', async ({ page }) => {
+  await page.goto('/');
+  const result = await page.evaluate(async () => {
+    const { WheelManager } = await import('/src/core/index.js');
+    const usage = (page, id) => (page << 16) | id;
+    const item = (usages, reportSize, reportCount = 1, min = 0, max = (1 << reportSize) - 1) => ({
+      usages, reportSize, reportCount, logicalMinimum: min, logicalMaximum: max
+    });
+    const fake = (name, descriptor, vendorId, productId) => ({
+      collections: descriptor,
+      productName: name,
+      vendorId,
+      productId,
+      opened: false,
+      oninputreport: null,
+      async open() { this.opened = true; },
+      async close() { this.opened = false; },
+      async sendReport() {}
+    });
+    const wheelDescriptor = [{
+      usagePage: 1,
+      usage: 4,
+      inputReports: [{
+        reportId: 1,
+        items: [
+          item([usage(1, 0x30)], 16, 1, 0, 65535),
+          item([usage(1, 0x31)], 8, 1, 0, 255),
+          item([usage(9, 1)], 1, 8, 0, 1)
+        ]
+      }],
+      outputReports: [],
+      featureReports: []
+    }];
+    const pedalDescriptor = [{
+      usagePage: 1,
+      usage: 5,
+      inputReports: [{
+        reportId: 2,
+        items: [item([usage(1, 0x32)], 8, 1, 0, 255)]
+      }],
+      outputReports: [],
+      featureReports: []
+    }];
+
+    const manager = new WheelManager();
+    const wheel = await manager.connect(fake('Fake Wheel', wheelDescriptor, 0x1001, 0x2001));
+    const pedals = await manager.connect(fake('Fake Pedals', pedalDescriptor, 0x1002, 0x2002));
+
+    const axes = document.createElement('webhid-axis-mapper');
+    const buttons = document.createElement('webhid-button-mapper');
+    const steering = document.createElement('webhid-steering-config');
+    axes.manager = manager;
+    buttons.manager = manager;
+    steering.manager = manager;
+    document.body.append(axes, buttons, steering);
+    await new Promise(resolve => requestAnimationFrame(resolve));
+
+    const axisOptions = Array.from(axes.shadowRoot.querySelectorAll('[data-field="device"] option')).map(option => ({ value: option.value, text: option.textContent }));
+    const buttonOptions = Array.from(buttons.shadowRoot.querySelectorAll('[data-field="device"] option')).map(option => ({ value: option.value, text: option.textContent }));
+    const steeringOptions = Array.from(steering.shadowRoot.querySelectorAll('[data-role="steering-source"] option')).map(option => ({ value: option.value, text: option.textContent }));
+    const ffbOptions = Array.from(steering.shadowRoot.querySelectorAll('[data-role="ffb-target"] option')).map(option => ({ value: option.value, text: option.textContent }));
+
+    return {
+      wheelId: wheel.id,
+      pedalId: pedals.id,
+      axisOptions,
+      buttonOptions,
+      steeringOptions,
+      ffbOptions
+    };
+  });
+
+  const allOptions = [...result.axisOptions, ...result.buttonOptions, ...result.steeringOptions, ...result.ffbOptions];
+  expect(allOptions.some(option => option.value === 'wheel' || option.text === 'wheel')).toBe(false);
+  expect(allOptions.some(option => option.text === 'Fake Wheel')).toBe(true);
+  expect(allOptions.some(option => option.text === 'Fake Pedals')).toBe(true);
+  expect(result.steeringOptions.find(option => option.text === 'Fake Wheel')?.value).toBe(result.wheelId);
+  expect(result.axisOptions.find(option => option.text === 'Fake Pedals')?.value).toBe(result.pedalId);
 });

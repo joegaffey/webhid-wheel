@@ -34,7 +34,7 @@ the generic device and mapping code from this package.
 3. **Mapping layer** — pure data plus `mapChannels()`, translating device state
    to semantic channels.
 4. **Demo page** — device list, mapping tabs, FFB test, raw capture and export.
-5. **Apps** — compose one wheel session and zero or more generic sessions.
+5. **Apps** — compose independent device sessions; steering source and force output are explicit bindings.
 
 There is one session per physical `HIDDevice`. The demo never opens the same
 device twice.
@@ -126,33 +126,35 @@ axis/button mappings) are a separate schema, specified in the
 
 Setup profiles:
 
-- match hardware by `vendorId` and `productId`, with an optional descriptor
+- use the multi-device schema v2: a device list with hardware descriptors, and
+  steering/FFB/axis/button bindings that reference device aliases;
+- match each device by `vendorId` and `productId`, with an optional descriptor
   signature for otherwise identical devices;
 - store all normalized settings in `0..1`;
 - round-trip app-owned values under `metadata`;
-- reconnect only to devices already granted through
-  `navigator.hid.getDevices()`; authorization still requires a user gesture.
+- reconnect matched devices only through `navigator.hid.getDevices()`;
+  authorization still requires a user gesture.
 
-The existing `webhid-wheel:v1:*` keys in the demo are treated as legacy and
-migrated once into `webhid-wheel:v2:profiles`.
+The existing `webhid-wheel:v1:*` settings and the `webhid-wheel:v2:profiles`
+store are treated as legacy and migrated once into
+`webhid-wheel:v3:profiles`. V1 profiles that referenced non-wheel roles cannot
+recover those devices' hardware; those mappings are recorded under
+`metadata.legacyUnboundMappings` for re-binding.
 
 ## Demo UI
 
-Top of page:
+The demo uses `<webhid-config-panel>` and its sub-elements:
 
-- one Connect button
-- device list with type, FFB badge, descriptor signature and input activity dot
-- signatures distinguish otherwise identical devices
-- the activity dot flashes only when axes/buttons/hats actually change
+- one **Connect device** action
+- device list with capability badges and per-device disconnect
+- steering source and force-output selection
+- throttle, brake, clutch and handbrake mapping
+- fixed button/shifter actions
+- setup profile import/export
 - Copy JSON / Download JSON
 
-Tabs:
-
-- **Wheel** — steering mapping, FFB test, strength, invert, max rotation
-- **Other axes** — throttle, brake, clutch, handbrake
-- **Buttons** — fixed actions and numbered default buttons
-
-Raw capture data is shown in a raw-input panel and included in the export. It is
+Devices are listed by name and session ID. There is no synthetic `wheel` role.
+Raw input data is shown in a raw-input panel and included in the export. It is
 not stored in localStorage.
 
 ## Capture flow
@@ -187,7 +189,7 @@ evidence for building known-device profiles.
 
 ## Storage
 
-localStorage stores metadata only. The current demo uses these legacy keys:
+localStorage stores metadata only. Legacy demo keys:
 
 ```text
 webhid-wheel:v1:devices
@@ -196,7 +198,8 @@ webhid-wheel:v1:settings
 ```
 
 The profile plan replaces the settings and mappings keys with a
-`webhid-wheel:v2:profiles` store document that records the active profile. See
+`webhid-wheel:v3:profiles` store document that records the active profile. The
+old `webhid-wheel:v2:profiles` store is migrated on load. See
 [Setup profiles](./lapster-integration-plan.md#7-profile-schema).
 
 Stored values:
@@ -278,9 +281,10 @@ Done:
 - metadata-only localStorage and versioned setup profiles
 - unified Copy/Download JSON
 - generic HID tests
-- `WheelManager`, calibration and setup-profile validation/matching
+- `WheelManager` session model, calibration and capability detection
+- multi-device setup-profile v2 validation/matching/migration
 - `<webhid-config-panel>` and the device/steering/axis/button elements
-- demo migrated to the UI package
+- demo migrated to the UI package with one Connect device flow
 
 Next:
 

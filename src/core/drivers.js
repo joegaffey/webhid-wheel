@@ -331,6 +331,25 @@ export function isForceFeedbackWheel(device) {
   return !!buildPidFfb(device);
 }
 
+export function detectDeviceCapabilities(device) {
+  const profile = registeredProfiles.find(p => profileMatches(p, device)) || null;
+  const steeringLayout = buildDescriptorLayout(device);
+  const generic = buildGenericDeviceLayout(device);
+  const ffb = !!(profile && profile.ffb &&
+    (profile.ffb.constant || profile.ffb.constantFast || profile.ffb.periodic)) ||
+    !!buildPidFfb(device);
+  const steering = !!(steeringLayout || (profile && profile.parse));
+  return {
+    steering,
+    ffb,
+    axes: generic.axes.length,
+    buttons: generic.buttons.length,
+    hats: generic.hats.length,
+    driver: steering || ffb ? 'wheel' : 'generic',
+    profile: profile ? profile.name : null
+  };
+}
+
 function buildPidFfb(device) {
   const collect = (listName) => {
     const reports = [];

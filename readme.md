@@ -4,14 +4,14 @@ Read a USB HID steering wheel directly in the browser over the [WebHID](https://
 
 **Live demo:** [webhid-wheel demo](https://joegaffey.com/webhid-wheel/)
 
-Plug the wheelbase in over USB, click **Connect**, and pick it from the browser's device list. Requires a WebHID-capable browser and a secure context (https or `localhost`).
+Plug devices in over USB, click **Connect device**, and pick one from the browser's device list. Requires a WebHID-capable browser and a secure context (https or `localhost`).
 
 ## Features
 
 - **Input** — steering, axes, buttons and POV hats from any HID wheel, gamepad, pedal set or button box, using a small profile registry with a generic **HID-descriptor fallback** for unknown devices.
 - **Force feedback** — constant force where the device supports it: built-in CAMMUS C5/C12, FFBeast and classic Logitech (G29 / Driving Force GT) profiles, plus automatic **USB-PID** detection for compliant devices. `constantFast()` reuses the running effect for high-rate updates. Includes force inversion and is safe by default (low strength, explicit stop).
 - **Mapping and capture** — combine multiple HID devices, map axes/buttons/hats to semantic channels, and copy/download raw device captures for known-device profiles.
-- **Setup profiles** — export and import named settings with hardware matching, validate/migrate profile documents, and reconnect to already-authorized devices.
+- **Setup profiles** — multi-device profile schema with hardware matching, validation, v1 migration, and reconnect to already-authorized devices.
 - **Web components** — drop-in `<webhid-config-panel>` with device picker, steering/FFB controls, axis and button mapping. Shadow DOM, CSS custom properties and app extension slots.
 
 ## Multi-device mapping
@@ -23,7 +23,7 @@ The demo page connects multiple HID devices, shows wheel/FFB capability, and map
 - fixed button actions and shifters in the button section
 - setup profiles in the profile bar
 
-Mappings, profile settings and metadata persist in localStorage. Raw capture data is kept in memory and included in the Copy/Download JSON export. `WebHIDWheel` remains the single-device wheel API; `WebHIDDevice` handles generic HID input. `WheelManager` composes one wheel plus optional generic sessions. There is no mandatory rig object or shared namespace.
+Mappings, profile settings and metadata persist in localStorage. Raw capture data is kept in memory and included in the Copy/Download JSON export. `WebHIDWheel` remains the low-level wheel driver; `WebHIDDevice` handles generic HID. `WheelManager` composes independent device sessions; devices are not assigned a synthetic "wheel" role. Steering source and force output are explicit bindings.
 
 The library does not poll the Gamepad API or capture keyboard/touch input. Those remain app-level fallbacks; the planned unified mapper is described in the [integration plan](./docs/lapster-integration-plan.md#15-follow-up-unified-input-mapper).
 
@@ -92,20 +92,36 @@ TypeScript typings ship for both entries: [`webhid-wheel.d.ts`](./webhid-wheel.d
 import { WheelManager, SetupProfileManager } from 'webhid-wheel';
 
 const manager = new WheelManager({ maxRotation: 900 });
-manager.on('input', state => { /* state.wheel, state.devices, state.channels */ });
+manager.on('input', state => { /* state.sessions, state.channels, state.steering */ });
 
-await manager.connectWheel();            // user gesture
-await manager.addDevice('pedals');       // optional external session
+const wheel = await manager.connect();   // user gesture
+const pedals = await manager.connect();  // another device
+
+manager.setCalibration({ device: wheel.id, deadzone: 0.02, maxRotation: 900 });
+manager.setFfb({ device: wheel.id, gain: 0.8 });
+manager.setMapping({
+  steering: { device: wheel.id },
+  axes: {
+    throttle: { device: pedals.id, source: 'axis', index: 0 },
+    brake: { device: pedals.id, source: 'axis', index: 1 }
+  }
+});
 
 const profiles = new SetupProfileManager();
 const profile = manager.toSetup({ profileName: 'Pro GT Setup' });
 const text = profiles.serialize(profile);
 const reimported = profiles.parse(text);
-
 const devices = await navigator.hid.getDevices(); // already authorized only
 const match = profiles.match(reimported, devices);
-if (match.status === 'matched') await manager.connectWheel(match.device);
+if (match.status === 'matched') {
+  for (const device of Object.values(match.matches)) await manager.connect(device);
+  manager.applySetup(reimported);
+}
 ```
+
+Profiles use the multi-device v2 schema: a device list with hardware
+descriptors, plus steering/FFB/axis/button bindings that reference device
+aliases. V1 single-device profiles are migrated on import.
 
 `requestDevice()` is never called by profile reconnection. Authorization always
 needs a user gesture.

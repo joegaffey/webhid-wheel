@@ -4,11 +4,13 @@ import {
   SetupProfileManager,
   WheelManager,
   parseProfile,
+  parseStore,
   serializeProfile,
   validateProfile
 } from '../core/index.js';
 
-const DEFAULT_STORAGE_KEY = 'webhid-wheel:v2:profiles';
+const DEFAULT_STORAGE_KEY = 'webhid-wheel:v3:profiles';
+const LEGACY_STORE_KEY = 'webhid-wheel:v2:profiles';
 
 export class WebHIDConfigPanel extends WebHIDElement {
   constructor() {
@@ -134,8 +136,6 @@ export class WebHIDConfigPanel extends WebHIDElement {
       .profiles .actions { align-items: center; }
       .profiles input[type="text"] { flex: 1 1 140px; min-width: 100px; }
       .profiles select { flex: 1 1 120px; min-width: 90px; }
-      .empty { color: var(--wheel-muted-color, #8f9bab); }
-      .hidden { display: none; }
     `;
   }
 
@@ -177,59 +177,64 @@ export class WebHIDConfigPanel extends WebHIDElement {
     root.querySelector('[data-role="profile-select"]').addEventListener('change', (event) => this._selectProfile(event.target.value));
     root.querySelector('[data-role="name"]').addEventListener('change', () => this._scheduleSave());
     root.addEventListener('webhid-error', (event) => {
-      this._status(String(event.detail && event.detail.error ? event.detail.error.message || event.detail.error : 'Unknown error'), 'error');
+      const error = event.detail && event.detail.error;
+      this._status(error ? (error.message || String(error)) : 'Unknown error', 'error');
     });
     root.addEventListener('webhid-change', () => this._scheduleSave());
     root.addEventListener('webhid-connect', () => this._onConnect());
   }
 
   _onConnect() {
-    if (this._pendingProfile && this._matches(this._pendingProfile)) {
+    if (this._pendingProfile) {
       this._apply(this._pendingProfile);
-      this._pendingProfile = null;
     } else if (!this._store) {
       this._migrateLegacy();
     }
-    if (!this._store && this._manager && this._manager.wheel) {
-      this._store = {
-        kind: 'webhid-wheel-profile-store',
-        schemaVersion: 1,
-        activeProfile: null,
-        profiles: []
-      };
+    if (!this._store && this._manager &&
+        this._manager.sessionList.some(entry => entry.capabilities && entry.capabilities.steering)) {
+      this._store = emptyStore();
     }
     this.refresh();
   }
 
-  _matches(profile) {
-    const device = this._manager && this._manager.wheel && this._manager.wheel.device;
-    return !!(device &&
-      device.vendorId === profile.hardware.vendorId &&
-      device.productId === profile.hardware.productId &&
-      (!profile.hardware.signature ||
-        device.signature === profile.hardware.signature ||
-        (this._manager.wheel && this._manager.wheel.signature === profile.hardware.signature)));
-  }
-
   _apply(profile) {
     if (!this._manager) return false;
-    if (!this._matches(profile)) {
-      this._pendingProfile = profile;
-      this._status(`Profile "${profile.profileName}" needs its matching device.`, '');
+    const devices = this._manager.sessionList.map(entry => entry.device).filter(Boolean);
+    const result = this._profiles.match(profile, devices);
+    const name = this.shadowRoot.querySelector('[data-role="name"]');
+    if (name) name.value = profile.profileName;
+    if (result.status === 'ambiguous') {
+      this._status(`Profile "${profile.profileName}" matches more than one device. Disconnect duplicates or choose a signature.`, 'error');
+      this._refreshChildren();
       return false;
     }
     this._manager.applySetup(profile);
-    const name = this.shadowRoot.querySelector('[data-role="name"]');
-    if (name) name.value = profile.profileName;
-    this._status(`Applied "${profile.profileName}".`, 'ready');
+    if (result.status === 'matched') {
+      this._status(`Applied "${profile.profileName}".`, 'ready');
+      this._pendingProfile = null;
+      return true;
+    }
+    this._pendingProfile = profile;
+    if (result.status === 'partial') {
+      this._status(`Applied available devices for "${profile.profileName}". Connect the missing device(s).`, '');
+    } else {
+      this._status(`Profile "${profile.profileName}" loaded. Connect its matching device.`, '');
+    }
     this._refreshChildren();
-    return true;
+    return false;
   }
 
   _loadStore() {
     if (!this._profiles) return;
     try {
       this._store = this._profiles.loadStore();
+      if (!this._store && typeof localStorage !== 'undefined') {
+        const legacy = localStorage.getItem(LEGACY_STORE_KEY);
+        if (legacy) {
+          this._store = parseStore(legacy);
+          this._profiles.saveStore(this._store);
+        }
+      }
     } catch (error) {
       this._store = null;
       this._status(`Stored profiles could not be loaded: ${error.message}`, 'error');
@@ -247,25 +252,25 @@ export class WebHIDConfigPanel extends WebHIDElement {
   _migrateLegacy() {
     if (this._store) return;
     const snapshot = legacyStorageSnapshot();
-    if (!snapshot || !this._manager || !this._manager.wheel || !this._manager.wheel.device) return;
-    const device = this._manager.wheel.device;
+    const entry = this._manager && this._manager.sessionList.find(item => item.capabilities && item.capabilities.steering);
+    if (!snapshot || !entry || !entry.device) return;
     try {
       const profile = validateProfile({
         ...(snapshot.settings || {}),
         mappings: snapshot.mappings || {},
-        name: `${device.productName || 'Wheel'} setup`
+        name: `${entry.name || 'Device'} setup`
       }, {
         hardware: {
-          vendorId: device.vendorId,
-          productId: device.productId,
-          productName: device.productName || '',
-          signature: device.signature || null
+          vendorId: entry.device.vendorId,
+          productId: entry.device.productId,
+          productName: entry.device.productName || '',
+          signature: entry.hardware && entry.hardware.signature ? entry.hardware.signature : null
         }
       });
       this._manager.applySetup(profile);
       this._store = {
         kind: 'webhid-wheel-profile-store',
-        schemaVersion: 1,
+        schemaVersion: 2,
         activeProfile: profile.profileName,
         profiles: [profile]
       };
@@ -279,8 +284,8 @@ export class WebHIDConfigPanel extends WebHIDElement {
   }
 
   _currentProfile() {
-    if (!this._manager || !this._manager.wheel || !this._manager.wheel.device) {
-      this._status('Connect a wheel before saving or exporting a profile.', 'error');
+    if (!this._manager || !this._manager.sessionList.length) {
+      this._status('Connect a device before saving or exporting a profile.', 'error');
       return null;
     }
     const nameInput = this.shadowRoot.querySelector('[data-role="name"]');
@@ -288,8 +293,9 @@ export class WebHIDConfigPanel extends WebHIDElement {
       ? this._store.profiles.find(profile => profile.profileName === this._store.activeProfile)
       : null;
     try {
+      const first = this._manager.sessionList[0];
       return validateProfile(this._manager.toSetup({
-        profileName: (nameInput && nameInput.value.trim()) || (existing && existing.profileName) || `${this._manager.wheel.name || 'Wheel'} setup`,
+        profileName: (nameInput && nameInput.value.trim()) || (existing && existing.profileName) || `${first.name || 'Rig'} setup`,
         metadata: existing ? existing.metadata : {}
       }));
     } catch (error) {
@@ -307,7 +313,7 @@ export class WebHIDConfigPanel extends WebHIDElement {
     else profiles.push(profile);
     this._store = {
       kind: 'webhid-wheel-profile-store',
-      schemaVersion: 1,
+      schemaVersion: 2,
       activeProfile: profile.profileName,
       profiles
     };
@@ -321,10 +327,11 @@ export class WebHIDConfigPanel extends WebHIDElement {
   }
 
   _scheduleSave() {
+    if (this._pendingProfile) return;
     if (this._saveTimer) clearTimeout(this._saveTimer);
     this._saveTimer = setTimeout(() => {
       this._saveTimer = null;
-      if (this._store && this._manager && this._manager.isConnected) this._save();
+      if (this._store && this._manager && this._manager.sessionList.length) this._save();
     }, 500);
   }
 
@@ -358,16 +365,14 @@ export class WebHIDConfigPanel extends WebHIDElement {
     try {
       const profile = parseProfile(await file.text());
       this._pendingProfile = profile;
-      if (!this._apply(profile)) {
-        this._status(`Imported "${profile.profileName}". Connect its matching device to apply it.`, '');
-      }
+      this._apply(profile);
       const profiles = this._store ? this._store.profiles.slice() : [];
       const index = profiles.findIndex(item => item.profileName === profile.profileName);
       if (index >= 0) profiles[index] = profile;
       else profiles.push(profile);
       this._store = {
         kind: 'webhid-wheel-profile-store',
-        schemaVersion: 1,
+        schemaVersion: 2,
         activeProfile: profile.profileName,
         profiles
       };
@@ -417,13 +422,22 @@ export class WebHIDConfigPanel extends WebHIDElement {
     this._refreshProfileSelect();
     const mode = this.shadowRoot.querySelector('[data-role="mode"]');
     if (mode) mode.textContent = 'WebHID';
-    if (this._manager && this._manager.isConnected) {
-      const wheel = this._manager.wheel;
-      this._status(`${wheel && wheel.name ? wheel.name : 'Wheel connected'}. Settings save to this browser.`, 'ready');
+    const connected = this._manager ? this._manager.sessionList.filter(entry => entry.session && entry.session.isConnected) : [];
+    if (connected.length) {
+      this._status(`${connected.length} device${connected.length === 1 ? '' : 's'} connected. Settings save to this browser.`, 'ready');
     } else if (this._pendingProfile) {
       this._status(`Profile "${this._pendingProfile.profileName}" loaded. Connect its matching device.`, '');
     }
   }
+}
+
+function emptyStore() {
+  return {
+    kind: 'webhid-wheel-profile-store',
+    schemaVersion: 2,
+    activeProfile: null,
+    profiles: []
+  };
 }
 
 function escapeHtml(value) {

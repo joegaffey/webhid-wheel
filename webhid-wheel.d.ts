@@ -285,6 +285,18 @@ export declare function mapChannels(
 export declare function isForceFeedbackWheel(device: HIDDevice): boolean;
 export declare function deviceSignature(device: HIDDevice): string;
 
+export interface DeviceCapabilities {
+  steering: boolean;
+  ffb: boolean;
+  axes: number;
+  buttons: number;
+  hats: number;
+  driver: 'wheel' | 'generic';
+  profile: string | null;
+}
+
+export declare function detectDeviceCapabilities(device: HIDDevice): DeviceCapabilities;
+
 export default WebHIDWheel;
 
 export declare const PROFILE_KIND: 'webhid-wheel-profile';
@@ -298,8 +310,14 @@ export interface SetupProfileHardware {
   signature?: string | null;
 }
 
+export interface SetupProfileDevice {
+  alias: string;
+  driver: 'wheel' | 'generic';
+  hardware: SetupProfileHardware;
+}
+
 export interface ProfileAxisMapping {
-  device?: string;
+  device: string;
   source: 'axis';
   index: number;
   invert?: boolean;
@@ -311,23 +329,29 @@ export interface ProfileAxisMapping {
 }
 
 export interface ProfileButtonMapping {
-  device?: string;
+  device: string;
   source: 'button' | 'hat';
   index: number;
   direction?: string;
 }
 
+export interface ProfileSteeringMapping {
+  device: string;
+  deadzone: number;
+  saturation: number;
+  maxRotation: number;
+  invert: boolean;
+}
+
+export interface ProfileFfbMapping {
+  device: string;
+  gain: number;
+  invert: boolean;
+}
+
 export interface SetupProfileSettings {
-  steering: {
-    deadzone: number;
-    saturation: number;
-    maxRotation: number;
-    invert: boolean;
-  };
-  ffb: {
-    gain: number;
-    invert: boolean;
-  };
+  steering: ProfileSteeringMapping;
+  ffb: ProfileFfbMapping;
   axes: Record<string, ProfileAxisMapping>;
   buttons: Record<string, ProfileButtonMapping>;
 }
@@ -336,7 +360,7 @@ export interface SetupProfile {
   kind: typeof PROFILE_KIND;
   schemaVersion: number;
   profileName: string;
-  hardware: SetupProfileHardware;
+  devices: SetupProfileDevice[];
   settings: SetupProfileSettings;
   metadata?: Record<string, unknown>;
 }
@@ -354,10 +378,11 @@ export interface ProfileStoreAdapter {
 }
 
 export interface ProfileMatchResult {
-  status: 'matched' | 'ambiguous' | 'authorization-required' | 'connected' | 'error';
-  device?: HIDDevice;
-  candidates?: HIDDevice[];
-  filters?: HIDDeviceFilter[];
+  status: 'matched' | 'partial' | 'ambiguous' | 'authorization-required' | 'connected' | 'error';
+  matches: Record<string, HIDDevice>;
+  missing: Array<{ alias: string; hardware: SetupProfileHardware }>;
+  ambiguous: Array<{ alias: string; candidates: HIDDevice[] }>;
+  filters: HIDDeviceFilter[];
   error?: unknown;
 }
 
@@ -391,7 +416,7 @@ export declare class SetupProfileManager {
   validateStore(value: unknown): ProfileStore;
   serializeStore(value: unknown): string;
   parseStore(text: string): ProfileStore;
-  toProfile(manager: WheelManager, options?: { profileName?: string; hardware?: SetupProfileHardware; metadata?: Record<string, unknown> }): SetupProfile;
+  toProfile(manager: WheelManager, options?: { profileName?: string; metadata?: Record<string, unknown> }): SetupProfile;
   loadStore(): ProfileStore | null;
   saveStore(value: unknown): string;
 }
@@ -402,24 +427,40 @@ export interface WheelManagerOptions extends WebHIDWheelOptions {
   saturation?: number;
   invertSteering?: boolean;
   mapping?: {
+    steering?: Partial<ProfileSteeringMapping>;
+    ffb?: Partial<ProfileFfbMapping>;
     axes?: Record<string, ProfileAxisMapping>;
     buttons?: Record<string, ProfileButtonMapping>;
   };
   wheelOptions?: WebHIDWheelOptions;
   deviceOptions?: WebHIDDeviceOptions;
-  hardware?: SetupProfileHardware;
   metadata?: Record<string, unknown>;
 }
 
+export interface WheelManagerSessionState {
+  id: string;
+  name: string;
+  driver: 'wheel' | 'generic';
+  capabilities: DeviceCapabilities;
+  connected: boolean;
+  state: WheelState | DeviceState | null;
+}
+
 export interface WheelManagerState {
-  wheel: WheelState | null;
-  devices: Record<string, DeviceState>;
+  sessions: Record<string, WheelManagerSessionState>;
   channels: Record<string, number>;
+  steering: number;
   timestamp: number;
 }
 
 export interface WheelManagerSession {
-  role: string;
+  id: string;
+  name: string;
+  driver: 'wheel' | 'generic';
+  capabilities: DeviceCapabilities;
+  device: HIDDevice;
+  hardware: SetupProfileHardware;
+  label: string | null;
   session: WebHIDWheel | WebHIDDevice;
 }
 
@@ -427,33 +468,39 @@ export declare class WheelManager {
   constructor(options?: WheelManagerOptions);
 
   on(event: 'input', fn: (state: WheelManagerState) => void): this;
-  on(event: 'connect', fn: (payload: { role: string; device: HIDDevice; session: WebHIDWheel | WebHIDDevice }) => void): this;
-  on(event: 'disconnect', fn: (payload: { role: string; device: HIDDevice; session: WebHIDWheel | WebHIDDevice }) => void): this;
+  on(event: 'connect', fn: (payload: { session: WheelManagerSession; device: HIDDevice }) => void): this;
+  on(event: 'disconnect', fn: (payload: { session: WheelManagerSession; device: HIDDevice }) => void): this;
   on(event: 'error', fn: (error: unknown) => void): this;
-  on(event: 'setup-applied', fn: (profile: SetupProfile) => void): this;
+  on(event: 'setup-applied', fn: (payload: { profile: SetupProfile; matches: Record<string, string>; missing: string[] }) => void): this;
   on(event: string, fn: (...args: unknown[]) => void): this;
   off(event: string, fn: (...args: unknown[]) => void): this;
   emit(event: string, payload?: unknown): void;
 
   readonly wheel: WebHIDWheel | null;
   readonly sessions: Map<string, WheelManagerSession>;
+  readonly sessionList: WheelManagerSession[];
   readonly isConnected: boolean;
   readonly channels: Record<string, number>;
   readonly state: WheelManagerState;
 
+  connect(device?: HIDDevice, options?: { driver?: 'wheel' | 'generic'; label?: string; id?: string }): Promise<WheelManagerSession | null>;
   connectWheel(device?: HIDDevice): Promise<HIDDevice | null>;
-  addDevice(role: string, device?: HIDDevice): Promise<HIDDevice | null>;
-  disconnect(role?: string): Promise<void>;
+  addDevice(roleOrDevice?: string | HIDDevice, device?: HIDDevice): Promise<HIDDevice | null>;
+  disconnect(id?: string): Promise<void>;
   disconnectAll(): Promise<void>;
 
-  setCalibration(calibration?: { deadzone?: number; saturation?: number; invert?: boolean }): { deadzone: number; saturation: number; invert: boolean };
-  getCalibration(): { deadzone: number; saturation: number; invert: boolean };
-  setFfb(ffb?: { gain?: number; invert?: boolean }): { gain: number; invert: boolean };
-  getFfb(): { gain: number; invert: boolean };
-  setMapping(mapping?: WheelManagerOptions['mapping']): { axes: Record<string, ProfileAxisMapping>; buttons: Record<string, ProfileButtonMapping> };
-  getMapping(): { axes: Record<string, ProfileAxisMapping>; buttons: Record<string, ProfileButtonMapping> };
+  maxRotation: number;
+  ffbStrength: number;
+  ffbInvert: boolean;
+
+  setCalibration(calibration?: { device?: string | null; deadzone?: number; saturation?: number; invert?: boolean; maxRotation?: number }): { device: string | null; deadzone: number; saturation: number; invert: boolean; maxRotation: number };
+  getCalibration(): { device: string | null; deadzone: number; saturation: number; invert: boolean; maxRotation: number };
+  setFfb(ffb?: { device?: string | null; gain?: number; invert?: boolean }): { device: string | null; gain: number; invert: boolean };
+  getFfb(): { device: string | null; gain: number; invert: boolean };
+  setMapping(mapping?: WheelManagerOptions['mapping']): SetupProfileSettings;
+  getMapping(): SetupProfileSettings;
   applySetup(profile: unknown): SetupProfile;
-  toSetup(options?: { profileName?: string; hardware?: SetupProfileHardware; metadata?: Record<string, unknown> }): SetupProfile;
+  toSetup(options?: { profileName?: string; metadata?: Record<string, unknown> }): SetupProfile;
 
   constant(value: number): Promise<void>;
   constantFast(value: number): Promise<void>;

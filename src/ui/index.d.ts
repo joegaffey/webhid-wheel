@@ -1,7 +1,8 @@
 import type {
   SetupProfile,
   SetupProfileManager,
-  WheelManager
+  WheelManager,
+  WheelManagerSession
 } from '../../webhid-wheel.js';
 
 export interface WebHIDChangeDetail {
@@ -11,7 +12,7 @@ export interface WebHIDChangeDetail {
 }
 
 export interface WebHIDConnectDetail {
-  role: string;
+  session: WheelManagerSession;
   device: HIDDevice;
 }
 
@@ -22,7 +23,6 @@ export interface WebHIDAuthorizationDetail {
 
 export declare class WebHIDDevicePicker extends HTMLElement {
   manager: WheelManager | null;
-  profiles: SetupProfileManager | null;
   filters: HIDDeviceFilter[] | null;
   refresh(): void;
 }

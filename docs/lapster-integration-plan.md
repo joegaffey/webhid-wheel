@@ -1,6 +1,6 @@
 # Package, setup profiles and Lapster integration plan
 
-Status: implemented on `feature/core-ui-package` (2026-10-29), pending dev
+Status: implemented through 0.3.0 on `feature/core-ui-package` (2026-10-29), pending dev
 verification. Supersedes the downloaded `webhid_integration_task_spec.md`. This
 document is the working contract for splitting `webhid-wheel` into a core
 package and a UI package, adding portable setup profiles, and replacing
@@ -44,7 +44,11 @@ Related documents:
 
 | Topic | Decision |
 | --- | --- |
-| Core manager name | `WheelManager`, with the existing `WebHIDWheel` retained as the low-level single-wheel API |
+| Core manager name | `WheelManager`; `WebHIDWheel` remains the low-level wheel driver, but the manager has no primary-wheel role |
+| Device model | Sessions keyed by ID. Driver (`wheel`/`generic`) and capabilities are properties, not UI roles |
+| Steering | A mapping source bound to a steering-capable session, not global manager state |
+| FFB | A selectable output binding to one FFB-capable session |
+| Profile schema | Multi-device v2: a device list with aliases plus per-channel bindings |
 | Setup profile name | `SetupProfileManager` is the canonical class; export `ProfileManager` as an alias for the requested import style |
 | Protocol profiles | Existing `registerProfile` / `WebHIDWheel.registerProfile` keep their current meaning |
 | Units | All normalized settings are `0..1`. `ffbGain: 0.8` means 80%. The original `ffbGain: 80` example is not used |
@@ -53,7 +57,7 @@ Related documents:
 | Threading | Main thread for this work. Core must remain worker-compatible for Lapster CP7 |
 | FFB rate | Keep Lapster's current 5 ms (200 Hz) loop. Do not reduce it to 100 Hz |
 | Lapster dev dependency | `file:../../webhid-wheel` in `lapster/web/package.json`; CI and release pin a git commit or tag |
-| Storage | New profile key is `webhid-wheel:v2:profiles` for the demo. Lapster uses `lapster.wheel.v3` and migrates from `lapster.wheel.v2` |
+| Storage | Demo uses `webhid-wheel:v3:profiles`; v1/v2 stores migrate on load. Lapster uses its own key and migration |
 | Integration point | Lapster's `#assists-dialog` controls tab, replacing `setupWheelControls`, not a new settings modal |
 
 ## 4. Current state and gaps
@@ -126,7 +130,7 @@ Keep `webhid-wheel.d.ts` as the matching compatibility type shim, re-exporting
 ```json
 {
   "name": "webhid-wheel",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "type": "module",
   "main": "./dist/core/index.js",
   "module": "./dist/core/index.js",
@@ -175,7 +179,7 @@ Requirements:
 - `prepare` must build `dist` so GitHub installs and `file:` installs work.
 - `npm pack` must be tested; a published tarball without `dist` is a release
   blocker.
-- The package version becomes `0.2.0` because the package gains subpath exports
+- The package version becomes `0.3.0` because the package gains subpath exports
   while retaining the old API.
 - Add `@playwright/test` as a devDependency for the browser component tests.
   Runtime dependencies stay at zero.
@@ -199,53 +203,61 @@ The default export remains `WebHIDWheel`.
 
 ### 6.2 `WheelManager`
 
-`WheelManager` is the headless orchestrator used by the UI. It owns one wheel
-session and zero or more generic sessions. It does not own DOM, storage or app
-telemetry.
+`WheelManager` is the headless orchestrator used by the UI. It owns zero or more
+independent HID sessions. It does not own DOM, storage or app telemetry.
 
 ```js
 import { WheelManager } from 'webhid-wheel';
 
-const manager = new WheelManager({
-  maxRotation: 900,
-  filters: [{ vendorId: 0x0eb7 }]
-});
+const manager = new WheelManager({ filters: [{ vendorId: 0x0eb7 }] });
 
 manager.on('input', (state) => {});
-manager.on('connect', ({ role, device }) => {});
-manager.on('disconnect', ({ role, device }) => {});
+manager.on('connect', ({ session, device }) => {});
+manager.on('disconnect', ({ session, device }) => {});
 manager.on('error', (error) => {});
 
-await manager.connectWheel();             // user gesture
-await manager.connectWheel(device);       // already-authorized device
-await manager.addDevice('pedals');        // user gesture
-await manager.addDevice('buttons', device);
-await manager.disconnect('pedals');
-await manager.disconnectAll();
+const wheel = await manager.connect();      // user gesture
+const pedals = await manager.connect();     // another device
+
+manager.setCalibration({ device: wheel.id, deadzone: 0.02, maxRotation: 900 });
+manager.setFfb({ device: wheel.id, gain: 0.8 });
+manager.setMapping({
+  steering: { device: wheel.id },
+  axes: {
+    throttle: { device: pedals.id, source: 'axis', index: 0 },
+    brake: { device: pedals.id, source: 'axis', index: 1 }
+  }
+});
+
+await manager.disconnect(pedals.id);
 ```
 
 Required members:
 
-- `state`: `{ wheel, devices, channels, timestamp }`, where `wheel` is the
-  existing wheel state and `devices` is keyed by role.
-- `sessions`: read-only map of role to session.
-- `setCalibration(calibration)`, `getCalibration()`.
-- `setFfb({ gain, invert })`, `getFfb()`.
-- `applySetup(profile)`: apply settings to the active device(s); it does not
-  perform authorization.
-- `toSetup({ profileName, hardware })`: return a profile document for the
-  active configuration.
-- `constant(value)`, `constantFast(value)`, `stop()`.
-- `connectWheel(device?)`, `addDevice(role, device?)`, `disconnect(role)`,
-  `disconnectAll()`.
-- Events: `input`, `connect`, `disconnect`, `error`, `setup-applied`.
+- `sessions`: read-only map of session ID to `{ id, name, driver, capabilities,
+  device, hardware, session }`.
+- `sessionList`: array view of sessions.
+- `connect(device?, { driver?, label?, id? })`: opens or requests a device,
+  detects capabilities, and registers a session. Returns the session entry.
+- `state`: `{ sessions, channels, steering, timestamp }`.
+- Steering mapping: `{ device, deadzone, saturation, maxRotation, invert }`.
+- FFB mapping: `{ device, gain, invert }`, where `device` is the selected force
+  output.
+- `setCalibration`, `getCalibration`, `setFfb`, `getFfb`, `setMapping`,
+  `getMapping`.
+- `applySetup(profile)`: resolves profile device aliases against connected
+  sessions, applies matched bindings, and records missing/ambiguous aliases.
+- `toSetup({ profileName, metadata })`: emits a multi-device v2 profile.
+- `constant`, `constantFast`, `stop`: target the selected FFB session.
+- Legacy `connectWheel` and `addDevice` remain as compatibility wrappers, but
+  the UI does not use them and there is no `wheel` role.
 
 Construction must not touch `document` or throw in Node. Feature detection for
 `navigator.hid` happens when a connection is attempted. `WebHIDWheel` keeps its
-API; its constructor now requires only `navigator.hid`, so an authorized device
-can be opened in a worker where `requestDevice()` is unavailable. Calling
-`connect()` without a device still requires `requestDevice()` and must run on
-the main thread.
+API; its constructor requires only `navigator.hid`, so an authorized device can
+be opened in a worker where `requestDevice()` is unavailable. Calling
+`connect()` without a device still requires `requestDevice()` and must run on the
+main thread.
 
 `WheelManager` must not call `localStorage`, `requestAnimationFrame`,
 `performance`-driven rendering, or DOM APIs. It may use the existing
@@ -257,189 +269,105 @@ the main thread.
 import { SetupProfileManager, ProfileManager } from 'webhid-wheel';
 
 const profiles = new SetupProfileManager();
-const profile = profiles.validate(raw);
-const profileDocument = profiles.toProfile(manager, { profileName: 'Pro GT Setup' });
+const profileDocument = manager.toSetup({ profileName: 'Pro GT Setup' });
 const text = profiles.serialize(profileDocument);
 const result = profiles.match(profileDocument, await navigator.hid.getDevices());
 ```
 
 Required members:
 
-- `validate(value)`: parse, validate, migrate and return a normalized profile.
-- `serialize(profile)`: stable JSON string.
-- `parse(text)`: `validate(JSON.parse(text))`.
-- `toProfile(manager, { profileName })`: snapshot current settings.
-- `match(profile, devices)`: pure matching, returning
-  `{ status, device?, candidates? }`.
-- `migrate(value)`: accept legacy v0/v1 shapes and return schema v1.
-- `reconnect(manager, profile, { getDevices })`: uses only authorized devices.
-  Returns `{ status: 'connected' }`, `{ status: 'ambiguous', candidates }` or
-  `{ status: 'authorization-required', filters }`. It never calls
+- `validate(value)`: parse, validate, migrate and return a normalized v2 profile.
+- `serialize(profile)`, `parse(text)`.
+- `toProfile(manager, { profileName })`: snapshot the current rig.
+- `match(profile, devices)`: pure multi-device matching. Returns
+  `{ status, matches, missing, ambiguous, filters }` where `matches` maps profile
+  aliases to devices.
+- `migrate(value)`: accept v1 profiles and return schema v2.
+- `reconnect(manager, profile, { getDevices })`: connects matched devices,
+  applies the profile, and returns the match result. It never calls
   `requestDevice()`.
 
-`ProfileManager` is an alias of `SetupProfileManager`. Documentation should use
-`SetupProfileManager` to avoid confusion with device-protocol profiles.
-
-The UI owns the storage implementation. If a storage adapter is provided, it
-must be injected:
-
-```js
-new SetupProfileManager({
-  store: {
-    load(): string | null,
-    save(text: string): void
-  }
-});
-```
-
-`localStorage` is never referenced inside core.
+`ProfileManager` is an alias of `SetupProfileManager`. The UI owns storage. If a
+storage adapter is provided, it must be injected; `localStorage` is never
+referenced inside core.
 
 ## 7. Profile schema
 
-Canonical schema version 1:
+Canonical schema version 2:
 
 ```json
 {
   "kind": "webhid-wheel-profile",
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "profileName": "Pro GT Setup",
-  "hardware": {
-    "vendorId": 1133,
-    "productId": 49739,
-    "productName": "Logitech G29 Racing Wheel",
-    "signature": null
-  },
+  "devices": [
+    {
+      "alias": "d1",
+      "driver": "wheel",
+      "hardware": {
+        "vendorId": 1133,
+        "productId": 49739,
+        "productName": "Logitech G29 Racing Wheel",
+        "signature": null
+      }
+    },
+    {
+      "alias": "d2",
+      "driver": "generic",
+      "hardware": {
+        "vendorId": 1133,
+        "productId": 49740,
+        "productName": "Button box",
+        "signature": null
+      }
+    }
+  ],
   "settings": {
     "steering": {
+      "device": "d1",
       "deadzone": 0.05,
       "saturation": 1,
       "maxRotation": 900,
       "invert": false
     },
     "ffb": {
+      "device": "d1",
       "gain": 0.8,
       "invert": false
     },
     "axes": {
-      "throttle": {
-        "device": "wheel",
-        "source": "axis",
-        "index": 0,
-        "invert": false,
-        "min": 0,
-        "center": null,
-        "max": 1,
-        "deadzone": 0,
-        "saturation": 1
-      },
-      "brake": {
-        "device": "wheel",
-        "source": "axis",
-        "index": 1,
-        "invert": false,
-        "min": 0,
-        "center": null,
-        "max": 1,
-        "deadzone": 0,
-        "saturation": 1
-      },
-      "clutch": {
-        "device": "pedals",
-        "source": "axis",
-        "index": 0,
-        "invert": false,
-        "min": 0,
-        "center": null,
-        "max": 1,
-        "deadzone": 0,
-        "saturation": 1
-      },
-      "handbrake": {
-        "device": "buttons",
-        "source": "axis",
-        "index": 2,
-        "invert": false,
-        "min": 0,
-        "center": null,
-        "max": 1,
-        "deadzone": 0,
-        "saturation": 1
-      }
+      "throttle": { "device": "d2", "source": "axis", "index": 0 }
     },
     "buttons": {
-      "shiftUp": {
-        "device": "wheel",
-        "source": "button",
-        "index": 4
-      },
-      "reverse": {
-        "device": "wheel",
-        "source": "button",
-        "index": 9
-      }
+      "shiftUp": { "device": "d1", "source": "button", "index": 4 }
     }
   },
   "metadata": {
-    "lapster": {
-      "rearLightening": 0.4,
-      "frontShudder": 0.2,
-      "roadNoise": 0.3
-    }
+    "lapster": { "rearLightening": 0.4 }
   }
 }
 ```
 
 Rules:
 
-- `kind` and `schemaVersion` are required.
-- `profileName` is required and trimmed.
-- `hardware.vendorId` and `hardware.productId` are required integers in
-  `0..65535`.
-- `productName` is informational and must not be used for matching.
-- `signature` is optional. WebHID does not expose a serial number, so use a
-  descriptor-derived signature only when the app can compute one. If two devices
-  share VID/PID, the picker shows both and requires a selection; it must not
-  silently bind to the first.
-- `settings.steering.deadzone` is `0..0.5`; `saturation` is `0.05..1` and must
-  be greater than `deadzone`.
-- `settings.ffb.gain` is `0..1`; `invert` is boolean.
-- `settings.axes.*` entries use `device` roles (`wheel`, `pedals`, `buttons`, or
-  an app-defined role), `source: 'axis'`, an integer index, and normalized
-  calibration values. Hat directions are mapped through `settings.buttons`.
-- `settings.buttons.*` entries use `device`, `source` (`button` or `hat`),
-  `index`, and optional `direction` for hats.
-- `metadata` is app-owned and round-trips untouched. Lapster stores its feel
-  mixer values here so importing a profile does not discard them.
-- Top-level keys outside this schema are rejected; app-specific data must be
-  nested under `metadata`. This catches typos while keeping app extensions
-  portable.
+- `devices` is non-empty; aliases are unique, stable within the profile.
+- Each device requires `vendorId` and `productId`; `productName` is display-only;
+  an optional descriptor `signature` disambiguates identical hardware.
+- `settings.steering`, `settings.ffb`, and every axis/button binding reference a
+  device alias.
+- `settings.ffb.device` is the selectable force-output session. It is not a
+  primary-wheel role.
+- Normalized values are `0..1`; `ffb.gain: 0.8` means 80%.
+- `metadata` is app-owned and round-trips untouched.
+- Unknown top-level keys are rejected; app data belongs under `metadata`.
 
-Legacy migration:
+V1 migration:
 
-- Demo `webhid-wheel:v1:settings` and `webhid-wheel:v1:mappings` are read once
-  and converted into a single profile with the last active device's hardware.
-- Lapster `lapster.wheel.v2` maps to `settings.steering`, `settings.ffb`, and
-  `metadata.lapster` using the existing field names.
-- Invalid legacy data is left untouched and surfaced as a diagnostic; it is not
-  deleted.
-
-### 7.1 Storage document
-
-When the demo or panel persists more than one profile, it stores a store
-document:
-
-```json
-{
-  "kind": "webhid-wheel-profile-store",
-  "schemaVersion": 1,
-  "activeProfile": "Pro GT Setup",
-  "profiles": []
-}
-```
-
-Profile names are unique within a store. The core validates each profile; the UI
-validates the store envelope. A single-profile export is the profile object
-itself, not the store envelope.
+- `hardware` becomes device alias `d1`.
+- `settings.steering`, `settings.ffb`, and `device: "wheel"` mappings target `d1`.
+- Other role-based mapping references cannot recover hardware from v1; they are
+  removed from active bindings and recorded under
+  `metadata.legacyUnboundMappings`.
 
 ## 8. Calibration semantics
 
@@ -491,18 +419,18 @@ No `navigator.hid`, `document` or `localStorage` access at module top level.
 
 | Element | Purpose | Properties | Events |
 | --- | --- | --- | --- |
-| `<webhid-device-picker>` | Connect, disconnect, hot-plug, authorization | `manager`, `profiles`, `filters` | `webhid-connect`, `webhid-disconnect`, `webhid-authorization-required`, `webhid-error` |
-| `<webhid-steering-config>` | Deadzone, saturation, rotation, invert, FFB gain | `manager`, `settings` | `webhid-change` |
-| `<webhid-axis-mapper>` | Throttle, brake, clutch, handbrake assignment and telemetry | `manager`, `mapping` | `webhid-capture`, `webhid-change` |
-| `<webhid-button-mapper>` | Shift, paddle, UI action mapping | `manager`, `mapping` | `webhid-capture`, `webhid-change` |
+| `<webhid-device-picker>` | Connect one device, list sessions, disconnect, hot-plug, authorization | `manager`, `filters` | `webhid-connect`, `webhid-authorization-required`, `webhid-error` |
+| `<webhid-steering-config>` | Steering source, force output, deadzone, saturation, rotation, invert, FFB gain | `manager`, `settings` | `webhid-change` |
+| `<webhid-axis-mapper>` | Throttle, brake, clutch, handbrake assignment and telemetry, bound to a session | `manager`, `mapping` | `webhid-capture`, `webhid-change` |
+| `<webhid-button-mapper>` | Shift, paddle, UI action mapping, bound to a session | `manager`, `mapping` | `webhid-capture`, `webhid-change` |
 | `<webhid-config-panel>` | Composite panel and profile import/export | `manager`, `profiles`, `storageKey` | `webhid-ready`, `webhid-profile-change`, `webhid-error` |
 
 All events are `bubbles: true` and `composed: true`. Event `detail` objects are
 plain data except `webhid-ready`, which includes the manager.
 
 `<webhid-device-picker>` subscribes to `navigator.hid` `connect` and `disconnect`
-events, re-runs profile matching, and updates status. It does not auto-open a
-newly connected device without a profile match or a user action.
+events and updates status. It never shows a synthetic device; each row is a real
+session.
 
 `<webhid-config-panel>` owns the default `WheelManager` only when a `manager`
 property is not supplied by the app. It must accept an app-owned manager so
@@ -572,7 +500,7 @@ dependency must live in `web/package.json`.
 For CI and release:
 
 - Pin a commit or tag, for example
-  `github:joegaffey/webhid-wheel#<sha>` or a published `0.2.0`.
+  `github:joegaffey/webhid-wheel#<sha>` or a published `0.3.0`.
 - Record the revision in Lapster's `THIRD_PARTY_NOTICES.md`.
 - Ensure `dist` is built before Lapster's esbuild run. Prefer the package
   `prepare` script; if the CI install mode skips it, run `npm --prefix
@@ -734,7 +662,7 @@ the default.
   reconnect, panel controls.
 - Best-effort C12/FFBeast check if hardware is available.
 - Verify Chromium, WebHID-unavailable fallback, and Lapster's mobile layout.
-- Tag `webhid-wheel@0.2.0`, pin the revision in Lapster, update docs.
+- Tag `webhid-wheel@0.3.0`, pin the revision in Lapster, update docs.
 
 Exit criteria: hardware checklist passes; release notes list the new subpath,
 setup profiles and compatibility guarantees.
@@ -771,7 +699,7 @@ setup profiles and compatibility guarantees.
 
 | Risk | Mitigation |
 | --- | --- |
-| Breaking existing consumers | Keep all old exports, root shim, and regression tests; release as 0.2.0 |
+| Breaking existing consumers | Keep all old exports, root shim, and regression tests; release as 0.3.0 |
 | `dist` missing from installs | `prepare` build, tarball test, CI build step before Lapster build |
 | `file:` dependency breaks CI | Use file only for local dev; pin a git commit or tag for CI/release |
 | Stale vendored copy silently returns | Delete vendor directory and add an import check in review |
@@ -834,9 +762,8 @@ after the interface is stable.
 
 - Resolved: the demo now uses the components. Raw capture, export and the wheel
   visual remain demo-shell features.
-- Whether to publish `0.2.0` to npm or use a pinned GitHub commit. Either is
+- Whether to publish `0.3.0` to npm or use a pinned GitHub commit. Either is
   acceptable if Lapster's lockfile and `THIRD_PARTY_NOTICES.md` record it.
-- Multi-device profile roles beyond wheel plus pedals/buttons/shifter. Schema v1
-  supports roles, but the first hardware acceptance remains the CAMMUS C5 with
-  optional external pedals/buttons.
+- The first hardware acceptance remains the CAMMUS C5 with optional external
+  pedals/buttons; multi-device profile v2 is implemented in the library.
 - HID worker migration remains Lapster CP7 and is not part of this plan.

@@ -47,12 +47,11 @@ export class WebHIDAxisMapper extends WebHIDElement {
 
   _unbindManager() {
     if (!this._boundManager) return;
-    const manager = this._boundManager;
-    if (typeof manager.off === 'function') {
-      manager.off('input', this._managerHandler);
-      manager.off('connect', this._managerHandler);
-      manager.off('disconnect', this._managerHandler);
-      manager.off('setup-applied', this._managerHandler);
+    if (typeof this._boundManager.off === 'function') {
+      this._boundManager.off('input', this._managerHandler);
+      this._boundManager.off('connect', this._rolesHandler);
+      this._boundManager.off('disconnect', this._rolesHandler);
+      this._boundManager.off('setup-applied', this._managerHandler);
     }
     this._boundManager = null;
   }
@@ -83,7 +82,7 @@ export class WebHIDAxisMapper extends WebHIDElement {
 
   css() {
     return `
-      .mapping { display: grid; grid-template-columns: 72px minmax(70px, 1fr) 54px 40px auto; gap: 5px; align-items: center; margin: 5px 0; }
+      .mapping { display: grid; grid-template-columns: 72px minmax(100px, 1fr) 54px 40px auto; gap: 5px; align-items: center; margin: 5px 0; }
       .mapping input[type="number"] { width: 100%; }
       .live { font-variant-numeric: tabular-nums; color: var(--wheel-muted-color, #8f9bab); min-width: 40px; text-align: right; }
       .mapping.armed { outline: 1px solid var(--wheel-accent, #38bdf8); outline-offset: 2px; }
@@ -96,36 +95,46 @@ export class WebHIDAxisMapper extends WebHIDElement {
     `;
   }
 
-  _roles() {
-    const roles = ['wheel'];
-    if (this.manager && this.manager.sessions) {
-      for (const role of this.manager.sessions.keys()) {
-        if (role !== 'wheel' && !roles.includes(role)) roles.push(role);
-      }
+  _devices() {
+    if (!this.manager || !this.manager.sessionList) return [];
+    return this.manager.sessionList.filter(entry =>
+      entry.capabilities && entry.capabilities.axes > 0
+    );
+  }
+
+  _options(devices, current) {
+    const options = devices.map(device => {
+      const label = device.name || device.id;
+      return `<option value="${escapeHtml(device.id)}"${device.id === current ? ' selected' : ''}>${escapeHtml(label)}</option>`;
+    });
+    if (current && !devices.some(device => device.id === current)) {
+      options.unshift(`<option value="${escapeHtml(current)}" selected>Missing device (${escapeHtml(current)})</option>`);
     }
-    return roles;
+    if (!options.length) options.push('<option value="">No devices</option>');
+    return options.join('');
   }
 
   template() {
     const mapping = this.manager && typeof this.manager.getMapping === 'function'
       ? this.manager.getMapping().axes
       : (this._mappingOverride && (this._mappingOverride.axes || this._mappingOverride) || {});
-    const roles = this._roles();
+    const devices = this._devices();
+    const disabled = devices.length ? '' : ' disabled';
     const rows = CHANNELS.map(([channel, label]) => {
       const entry = mapping[channel] || {};
-      const device = entry.device || 'wheel';
+      const device = entry.device || (devices[0] && devices[0].id) || '';
       const index = Number.isInteger(entry.index) ? entry.index : 0;
       const invert = !!entry.invert;
       return `
         <div class="mapping" data-channel="${channel}">
           <label title="${label}">${label}</label>
-          <select data-field="device">${roles.map(role => `<option value="${escapeHtml(role)}"${role === device ? ' selected' : ''}>${escapeHtml(role)}</option>`).join('')}</select>
-          <input data-field="index" type="number" min="0" step="1" value="${index}" aria-label="${label} axis index">
-          <label class="check" title="Invert"><input data-field="invert" type="checkbox"${invert ? ' checked' : ''}></label>
+          <select data-field="device"${disabled}>${this._options(devices, device)}</select>
+          <input data-field="index" type="number" min="0" step="1" value="${index}" aria-label="${label} axis index"${disabled}>
+          <label class="check" title="Invert"><input data-field="invert" type="checkbox"${invert ? ' checked' : ''}${disabled}></label>
           <div class="actions">
             <span class="live" data-live="0.00">0.00</span>
-            <button type="button" data-action="set">Set</button>
-            <button type="button" data-action="clear">Clear</button>
+            <button type="button" data-action="set"${disabled}>Set</button>
+            <button type="button" data-action="clear"${disabled}>Clear</button>
           </div>
         </div>
       `;
@@ -139,8 +148,7 @@ export class WebHIDAxisMapper extends WebHIDElement {
   }
 
   bind() {
-    const root = this.shadowRoot;
-    for (const row of root.querySelectorAll('[data-channel]')) {
+    for (const row of this.shadowRoot.querySelectorAll('[data-channel]')) {
       for (const field of row.querySelectorAll('[data-field]')) {
         field.addEventListener('change', () => this._commit());
       }
@@ -150,7 +158,7 @@ export class WebHIDAxisMapper extends WebHIDElement {
         delete mapping.axes[row.dataset.channel];
         if (this.manager) this.manager.setMapping(mapping);
         this.emit('webhid-change', { mapping });
-        this.refresh();
+        this._updateLive();
       });
     }
   }
@@ -165,8 +173,13 @@ export class WebHIDAxisMapper extends WebHIDElement {
     for (const [channel] of CHANNELS) {
       const row = this._row(channel);
       if (!row) continue;
+      const device = row.querySelector('[data-field="device"]').value;
+      if (!device) {
+        delete mapping.axes[channel];
+        continue;
+      }
       mapping.axes[channel] = {
-        device: row.querySelector('[data-field="device"]').value,
+        device,
         source: 'axis',
         index: Math.max(0, Math.floor(Number(row.querySelector('[data-field="index"]').value) || 0)),
         invert: row.querySelector('[data-field="invert"]').checked
@@ -180,14 +193,12 @@ export class WebHIDAxisMapper extends WebHIDElement {
   _arm(channel) {
     const row = this._row(channel);
     if (!row) return;
-    const entry = {
-      device: row.querySelector('[data-field="device"]').value,
-      index: Math.max(0, Math.floor(Number(row.querySelector('[data-field="index"]').value) || 0))
-    };
-    const state = this._stateFor(entry.device);
+    const device = row.querySelector('[data-field="device"]').value;
+    if (!device) return;
+    const state = this._stateFor(device);
     this._capture = {
       channel,
-      device: entry.device,
+      device,
       baseline: state && state.axes ? state.axes.slice() : [],
       started: Date.now()
     };
@@ -195,11 +206,13 @@ export class WebHIDAxisMapper extends WebHIDElement {
     row.querySelector('[data-action="set"]').textContent = 'Listening…';
   }
 
-  _stateFor(role) {
-    if (!this.manager) return null;
-    const state = this.manager.state;
-    if (role === 'wheel') return state.wheel;
-    return state.devices && state.devices[role] ? state.devices[role] : null;
+  _stateFor(id) {
+    if (!this.manager || !this.manager.sessions) return null;
+    const entry = this.manager.sessions.get(id);
+    if (!entry) return null;
+    return entry.driver === 'wheel'
+      ? (entry.session.deviceState || entry.session.state)
+      : entry.session.state;
   }
 
   _updateLive() {
@@ -210,9 +223,9 @@ export class WebHIDAxisMapper extends WebHIDElement {
     for (const [channel] of CHANNELS) {
       const row = this._row(channel);
       if (!row) continue;
-      const role = row.querySelector('[data-field="device"]').value;
+      const id = row.querySelector('[data-field="device"]').value;
       const index = Math.max(0, Math.floor(Number(row.querySelector('[data-field="index"]').value) || 0));
-      const state = this._stateFor(role);
+      const state = this._stateFor(id);
       const raw = state && state.axes ? Number(state.axes[index]) : 0;
       const mapped = this.manager && this.manager.channels ? Number(this.manager.channels[channel]) : raw;
       row.querySelector('[data-live]').textContent = Number.isFinite(mapped) ? mapped.toFixed(2) : '0.00';
@@ -230,7 +243,7 @@ export class WebHIDAxisMapper extends WebHIDElement {
           row.querySelector('[data-field="index"]').value = String(best);
           this._cancelCapture();
           this._commit();
-          this.emit('webhid-capture', { channel, device: role, source: 'axis', index: best });
+          this.emit('webhid-capture', { channel, device: id, source: 'axis', index: best });
         }
       }
     }
