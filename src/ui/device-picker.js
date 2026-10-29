@@ -141,7 +141,10 @@ export class WebHIDDevicePicker extends WebHIDElement {
         this._error = '';
         this.emit('webhid-connect', { session, device: session.device });
       } else {
-        this._error = 'No device selected. Check the device connection and choose it in the browser prompt.';
+        const authorized = await this._authorizedCount();
+        this._error = authorized
+          ? `No device selected. Chrome has ${authorized} previously authorized HID device${authorized === 1 ? '' : 's'}; try Connect again.`
+          : 'No device selected. Chrome did not offer any HID devices. Connect the wheel directly to this device over USB/OTG and try again. A wheel connected to a PC will not appear here.';
         this.emit('webhid-authorization-required', {
           filters: (this.manager.options && this.manager.options.filters) || []
         });
@@ -155,10 +158,19 @@ export class WebHIDDevicePicker extends WebHIDElement {
     }
   }
 
+  async _authorizedCount() {
+    try {
+      const devices = await navigator.hid.getDevices();
+      return Array.isArray(devices) ? devices.length : 0;
+    } catch {
+      return 0;
+    }
+  }
+
   _connectErrorMessage(error) {
     const name = error && error.name;
     if (name === 'NotAllowedError' || name === 'SecurityError') {
-      return 'Device selection was cancelled or permission was denied.';
+      return 'Device selection was cancelled or blocked by Chrome. Use HTTPS and connect the device directly to this browser.';
     }
     if (name === 'NotSupportedError') {
       return 'WebHID device selection is not supported in this browser.';

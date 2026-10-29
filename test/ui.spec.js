@@ -580,7 +580,7 @@ test('device picker reports cancelled and rejected connect attempts', async ({ p
   });
 
   expect(result.cancelled).toContain('No device selected');
-  expect(result.rejected).toContain('cancelled or permission was denied');
+  expect(result.rejected).toContain('cancelled or blocked by Chrome');
 });
 
 test('device picker explains the unsupported WebHID state', async ({ page }) => {
