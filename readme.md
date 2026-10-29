@@ -23,7 +23,7 @@ The demo page connects multiple HID devices, shows wheel/FFB capability, and map
 - fixed button actions and shifters in the button section
 - setup profiles in the profile bar
 
-Mappings, profile settings and metadata persist in localStorage. Raw capture data is kept in memory and included in the Copy/Download JSON export. `WebHIDWheel` remains the low-level wheel driver; `WebHIDDevice` handles generic HID. `WheelManager` composes independent device sessions; devices are not assigned a synthetic "wheel" role. Steering source and force output are explicit bindings.
+Mappings, profile settings and metadata persist in localStorage. Raw capture data is kept in memory and included in the Copy/Export diagnostic export. `WebHIDWheel` remains the low-level wheel driver; `WebHIDDevice` handles generic HID. `WheelManager` composes independent device sessions; devices are not assigned a synthetic "wheel" role. Steering source and force output are explicit bindings.
 
 The library does not poll the Gamepad API or capture keyboard/touch input. Those remain app-level fallbacks; the planned unified mapper is described in the [integration plan](./docs/lapster-integration-plan.md#15-follow-up-unified-input-mapper).
 
@@ -178,7 +178,7 @@ G29 and Driving Force GT use Logitech's classic force-feedback protocol. G920, G
 
 The T248 exposes force feedback on a vendor report that WebHID cannot send. On Windows, PadForge can expose a virtual HID-PID wheel and forward its force feedback to the T248. The same bridge pattern works for other native-FFB wheels PadForge can drive; see [PadForge wheel bridge for WebHID](./docs/padforge-wheel-bridge.md).
 
-Got an unsupported wheel? Open the demo, connect it, turn full-lock and press every button, then use **Copy JSON** or **Download JSON** and attach the capture.
+Got an unsupported wheel? Open the demo, connect it, turn full-lock and press every button, then use **Copy** or **Export** in the device panel and attach the capture.
 
 ## Run locally
 

@@ -419,7 +419,7 @@ No `navigator.hid`, `document` or `localStorage` access at module top level.
 
 | Element | Purpose | Properties | Events |
 | --- | --- | --- | --- |
-| `<webhid-device-picker>` | Connect one device, list sessions, disconnect, hot-plug, authorization | `manager`, `filters` | `webhid-connect`, `webhid-authorization-required`, `webhid-error` |
+| `<webhid-device-picker>` | Connect one device, list sessions, disconnect, hot-plug, authorization | `manager`, `filters` | `webhid-connect`, `webhid-copy`, `webhid-export`, `webhid-authorization-required`, `webhid-error` |
 | `<webhid-steering-config>` | Steering source, force output, deadzone, saturation, rotation, invert, FFB gain | `manager`, `settings` | `webhid-change` |
 | `<webhid-axis-mapper>` | Throttle, brake, clutch, handbrake assignment and telemetry, bound to a session | `manager`, `mapping` | `webhid-capture`, `webhid-change` |
 | `<webhid-button-mapper>` | Shift, paddle, UI action mapping, bound to a session | `manager`, `mapping` | `webhid-capture`, `webhid-change` |

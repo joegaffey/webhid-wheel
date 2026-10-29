@@ -6,9 +6,6 @@ const manager = new WheelManager();
 
 const els = {
   panel: document.querySelector('#configPanel'),
-  disconnectAll: document.querySelector('#disconnectAllButton'),
-  export: document.querySelector('#exportButton'),
-  download: document.querySelector('#downloadButton'),
   status: document.querySelector('#statusText'),
   force: document.querySelector('#force'),
   forceValue: document.querySelector('#forceValue'),
@@ -75,15 +72,6 @@ async function restoreGrantedDevices() {
       // Granted devices can disappear between enumeration and open.
     }
   }
-  updateActions();
-}
-
-function updateActions() {
-  const sessions = manager.sessionList;
-  const connected = sessions.filter(entry => entry.session && entry.session.isConnected);
-  els.export.disabled = !sessions.length;
-  els.download.disabled = !sessions.length;
-  els.disconnectAll.disabled = !connected.length;
 }
 
 function polar(cx, cy, r, degrees) {
@@ -241,13 +229,8 @@ function downloadExport() {
   setStatus('JSON downloaded.', 'ok');
 }
 
-els.disconnectAll.addEventListener('click', async () => {
-  await manager.disconnectAll();
-  updateActions();
-  setStatus('All devices disconnected.', '');
-});
-els.export.addEventListener('click', copyExport);
-els.download.addEventListener('click', downloadExport);
+els.panel.addEventListener('webhid-copy', copyExport);
+els.panel.addEventListener('webhid-export', downloadExport);
 
 els.force.addEventListener('input', () => {
   els.forceValue.textContent = `${els.force.value}%`;
@@ -271,12 +254,10 @@ window.__webhidDemo = { manager, panel: els.panel };
 
 manager.on('input', scheduleInputUpdate);
 manager.on('connect', () => {
-  updateActions();
   els.panel.refresh();
   scheduleInputUpdate();
 });
 manager.on('disconnect', () => {
-  updateActions();
   els.panel.refresh();
   scheduleInputUpdate();
 });
@@ -297,12 +278,10 @@ if (navigator.hid && typeof navigator.hid.addEventListener === 'function') {
     setTimeout(restoreGrantedDevices, 50);
   });
   navigator.hid.addEventListener('disconnect', () => {
-    updateActions();
     els.panel.refresh();
     scheduleInputUpdate();
   });
 }
 
-updateActions();
 updateWheelVisual();
 setTimeout(restoreGrantedDevices, 0);

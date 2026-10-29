@@ -85,6 +85,8 @@ export class WebHIDDevicePicker extends WebHIDElement {
         <div class="actions">
           <button class="primary" type="button" data-action="connect">Connect device</button>
           <button type="button" data-action="disconnect-all">Disconnect all</button>
+          <button type="button" data-action="copy" title="Copy diagnostic JSON">Copy</button>
+          <button type="button" data-action="export" title="Download diagnostic JSON">Export</button>
         </div>
       </div>
     `;
@@ -94,6 +96,8 @@ export class WebHIDDevicePicker extends WebHIDElement {
     const root = this.shadowRoot;
     root.querySelector('[data-action="connect"]').addEventListener('click', () => this._connect());
     root.querySelector('[data-action="disconnect-all"]').addEventListener('click', () => this._disconnectAll());
+    root.querySelector('[data-action="copy"]').addEventListener('click', () => this.emit('webhid-copy', { sessions: this.manager ? this.manager.sessionList : [] }));
+    root.querySelector('[data-action="export"]').addEventListener('click', () => this.emit('webhid-export', { sessions: this.manager ? this.manager.sessionList : [] }));
     root.querySelector('[data-role="list"]').addEventListener('click', (event) => {
       const button = event.target.closest('[data-remove]');
       if (button) this._disconnect(button.dataset.remove);
@@ -160,6 +164,8 @@ export class WebHIDDevicePicker extends WebHIDElement {
     const state = this.shadowRoot.querySelector('[data-role="hid-state"]');
     const connect = this.shadowRoot.querySelector('[data-action="connect"]');
     const disconnectAll = this.shadowRoot.querySelector('[data-action="disconnect-all"]');
+    const copy = this.shadowRoot.querySelector('[data-action="copy"]');
+    const exportButton = this.shadowRoot.querySelector('[data-action="export"]');
     const sessions = this.manager ? this.manager.sessionList : [];
     const connected = sessions.filter(entry => entry.session && entry.session.isConnected);
 
@@ -181,6 +187,8 @@ export class WebHIDDevicePicker extends WebHIDElement {
     connect.disabled = !this.manager || !available || this._busy;
     connect.textContent = this._busy ? 'Connecting…' : 'Connect device';
     disconnectAll.disabled = !this.manager || !connected.length || this._busy;
+    copy.disabled = !sessions.length || this._busy;
+    exportButton.disabled = !sessions.length || this._busy;
 
     list.innerHTML = sessions.length
       ? sessions.map(entry => {

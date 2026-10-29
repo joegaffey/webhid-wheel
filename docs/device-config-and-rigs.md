@@ -151,7 +151,7 @@ The demo uses `<webhid-config-panel>` and its sub-elements:
 - throttle, brake, clutch and handbrake mapping
 - fixed button/shifter actions
 - setup profile import/export
-- Copy JSON / Download JSON
+- Copy / Export diagnostic JSON
 
 Devices are listed by name and session ID. There is no synthetic `wheel` role.
 Raw input data is shown in a raw-input panel and included in the export. It is
@@ -279,7 +279,7 @@ Done:
 - device list, FFB badge, unified Connect
 - mapping capture with raw min/max/samples
 - metadata-only localStorage and versioned setup profiles
-- unified Copy/Download JSON
+- unified Copy/Export diagnostics
 - generic HID tests
 - `WheelManager` session model, calibration and capability detection
 - multi-device setup-profile v2 validation/matching/migration

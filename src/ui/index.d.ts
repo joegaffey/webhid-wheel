@@ -21,6 +21,10 @@ export interface WebHIDAuthorizationDetail {
   profile?: SetupProfile;
 }
 
+export interface WebHIDCaptureActionDetail {
+  sessions: WheelManagerSession[];
+}
+
 export declare class WebHIDDevicePicker extends HTMLElement {
   manager: WheelManager | null;
   filters: HIDDeviceFilter[] | null;

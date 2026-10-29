@@ -199,7 +199,7 @@ test('demo renders a connected wheel, input and a saved setup profile', async ({
   expect(stored.profiles[0].devices[0].hardware.vendorId).toBe(0x1234);
   expect(stored.profiles[0].settings.steering.maxRotation).toBe(900);
 
-  await page.locator('#exportButton').click();
+  await page.locator('webhid-config-panel').locator('webhid-device-picker').locator('[data-action="copy"]').click();
   await expect(page.locator('#exportText')).toHaveValue(/Fake Test Wheel/);
 });
 
