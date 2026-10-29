@@ -251,9 +251,29 @@ export class WheelManager {
     }
     if (!dev) return null;
 
-    const existing = this.sessionList.find(entry => entry.device === dev);
+    const signature = deviceSignature(dev);
+    const existing = this.sessionList.find(entry =>
+      entry.device === dev ||
+      (!entry.session.isConnected &&
+        entry.hardware &&
+        entry.hardware.vendorId === dev.vendorId &&
+        entry.hardware.productId === dev.productId &&
+        entry.hardware.signature === signature)
+    );
     if (existing) {
-      if (!existing.session.isConnected) await existing.session.connect(dev);
+      if (!existing.session.isConnected) {
+        const connected = await existing.session.connect(dev);
+        if (!connected) return null;
+        existing.device = dev;
+        existing.name = existing.label || existing.session.name || dev.productName || existing.id;
+        existing.hardware = this._hardwareFor(dev, existing.session);
+        existing.capabilities = this._capabilitiesFor(existing);
+        this._applySteeringSettings();
+        this._applyFfbSettings();
+        if (this._profile && this._missingAliases.length) this.applySetup(this._profile);
+        else this._ensureDefaultBindings(existing);
+        this.emit('connect', { session: existing, device: dev });
+      }
       this._recomputeChannels();
       return existing;
     }
@@ -487,7 +507,10 @@ export class WheelManager {
   }
 
   _deviceObjects() {
-    return this.sessionList.map(entry => entry.device).filter(Boolean);
+    return this.sessionList
+      .filter(entry => entry.session && entry.session.isConnected)
+      .map(entry => entry.device)
+      .filter(Boolean);
   }
 
   applySetup(profile) {

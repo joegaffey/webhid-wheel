@@ -24,6 +24,7 @@ els.panel.manager = manager;
 els.panel.storageKey = STORAGE_KEY;
 
 let inputQueued = false;
+let selectedSessionId = null;
 let lastReports = new Map();
 
 function escapeHtml(value) {
@@ -128,12 +129,20 @@ function reportMap(entry) {
 }
 
 function updateDebug() {
-  const entry = manager.sessionList.find(item => Object.keys(reportMap(item)).length);
+  let entry = selectedSessionId ? manager.sessions.get(selectedSessionId) : null;
+  if (!entry || !entry.session || !entry.session.isConnected) {
+    entry = manager.sessionList.find(item => item.session && item.session.isConnected) || null;
+    selectedSessionId = entry ? entry.id : null;
+  }
   if (!entry) {
-    els.debug.innerHTML = '<div class="dbg-empty">No data</div>';
+    els.debug.innerHTML = '<div class="dbg-empty">No device selected</div>';
     return;
   }
   const reports = reportMap(entry);
+  if (!Object.keys(reports).length) {
+    els.debug.innerHTML = `<div class="dbg-empty">No input reports yet for ${escapeHtml(entry.name)}</div>`;
+    return;
+  }
   const parts = [];
   for (const [reportId, bytes] of Object.entries(reports)) {
     const key = `${entry.id}:${reportId}`;
@@ -179,21 +188,23 @@ function buildExport() {
     schemaVersion: 3,
     generatedAt: new Date().toISOString(),
     userAgent: navigator.userAgent,
-    devices: manager.sessionList.map(entry => ({
-      id: entry.id,
-      name: entry.name,
-      driver: entry.driver,
-      capabilities: entry.capabilities,
-      vendorId: entry.device ? entry.device.vendorId : null,
-      productId: entry.device ? entry.device.productId : null,
-      productName: entry.device ? entry.device.productName : null,
-      signature: entry.hardware ? entry.hardware.signature : null,
-      ffb: !!entry.capabilities.ffb,
-      collections: serializeCollections(entry.device),
-      state: entry.session ? entry.session.state : null,
-      genericState: entry.driver === 'wheel' && entry.session ? entry.session.deviceState : null,
-      reports: reportMap(entry)
-    })),
+    devices: manager.sessionList
+      .filter(entry => entry.session && entry.session.isConnected)
+      .map(entry => ({
+        id: entry.id,
+        name: entry.name,
+        driver: entry.driver,
+        capabilities: entry.capabilities,
+        vendorId: entry.device ? entry.device.vendorId : null,
+        productId: entry.device ? entry.device.productId : null,
+        productName: entry.device ? entry.device.productName : null,
+        signature: entry.hardware ? entry.hardware.signature : null,
+        ffb: !!entry.capabilities.ffb,
+        collections: serializeCollections(entry.device),
+        state: entry.session ? entry.session.state : null,
+        genericState: entry.driver === 'wheel' && entry.session ? entry.session.deviceState : null,
+        reports: reportMap(entry)
+      })),
     profiles: store,
     mapping: manager.getMapping()
   };
@@ -223,6 +234,10 @@ function downloadExport() {
 
 els.panel.addEventListener('webhid-copy', copyExport);
 els.panel.addEventListener('webhid-export', downloadExport);
+els.panel.addEventListener('webhid-select', (event) => {
+  selectedSessionId = event.detail && event.detail.session ? event.detail.session.id : null;
+  updateDebug();
+});
 
 els.force.addEventListener('input', () => {
   els.forceValue.textContent = `${els.force.value}%`;

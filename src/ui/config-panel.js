@@ -22,6 +22,32 @@ export class WebHIDConfigPanel extends WebHIDElement {
     this._saveTimer = null;
     this._managerHandler = () => this.refresh();
     this._connectHandler = () => this._onConnect();
+    this._activeTab = 'wheel';
+  }
+
+  static get observedAttributes() {
+    return ['tabbed'];
+  }
+
+  attributeChangedCallback(name, oldValue, newValue) {
+    if (name === 'tabbed' && oldValue !== newValue && this.isConnected) this.render();
+  }
+
+  get tabbed() {
+    return this.hasAttribute('tabbed');
+  }
+
+  set tabbed(value) {
+    if (value) this.setAttribute('tabbed', '');
+    else this.removeAttribute('tabbed');
+  }
+
+  get activeTab() {
+    return this._activeTab;
+  }
+
+  set activeTab(value) {
+    this._selectTab(value);
   }
 
   connectedCallback() {
@@ -136,34 +162,103 @@ export class WebHIDConfigPanel extends WebHIDElement {
       .profiles .actions { align-items: center; }
       .profiles input[type="text"] { flex: 1 1 140px; min-width: 100px; }
       .profiles select { flex: 1 1 120px; min-width: 90px; }
+      .tabs { display: flex; gap: 2px; border-bottom: 1px solid var(--wheel-border-color, #2a303a); margin: 2px 0 4px; }
+      .tab {
+        appearance: none;
+        background: transparent;
+        border: 0;
+        border-bottom: 2px solid transparent;
+        border-radius: 0;
+        color: var(--wheel-muted-color, #8f9bab);
+        cursor: pointer;
+        font: inherit;
+        padding: 6px 10px;
+      }
+      .tab:hover { color: var(--wheel-fg-color, #e6e8eb); }
+      .tab[aria-selected="true"] { color: var(--wheel-accent, #38bdf8); border-bottom-color: var(--wheel-accent, #38bdf8); }
+      .tab:focus-visible { outline: 1px solid var(--wheel-accent, #38bdf8); outline-offset: -1px; }
+      .tab-panel[hidden] { display: none; }
     `;
   }
 
   template() {
+    const device = `
+      <webhid-device-picker>
+        <slot name="device-extra" slot="extra"></slot>
+      </webhid-device-picker>
+    `;
+    const steering = `
+      <webhid-steering-config>
+        <slot name="steering-visual" slot="visual"></slot>
+        <slot name="steering-extra" slot="extra"></slot>
+      </webhid-steering-config>
+    `;
+    const axes = '<webhid-axis-mapper></webhid-axis-mapper>';
+    const buttons = '<webhid-button-mapper></webhid-button-mapper>';
+    const extraSettings = '<slot name="extra-settings"></slot>';
+    const profiles = `
+      <div class="profiles">
+        <h3>Setup profile</h3>
+        <div class="actions">
+          <input data-role="name" type="text" placeholder="Profile name" aria-label="Profile name">
+          <select data-role="profile-select" aria-label="Stored setup profiles"></select>
+          <button type="button" data-action="save">Save</button>
+          <button type="button" data-action="export">Export</button>
+          <button type="button" data-action="import">Import</button>
+          <input data-role="file" type="file" accept="application/json,.json" hidden>
+        </div>
+      </div>
+    `;
+    const footer = '<slot name="footer"></slot>';
+    const head = `
+      <div class="head">
+        <slot name="header"><h3>Wheel configuration</h3></slot>
+        <span class="badge" data-role="mode"></span>
+      </div>
+      <div class="status" data-role="status" aria-live="polite"></div>
+    `;
+
+    if (!this.tabbed) {
+      return `
+        <div class="panel">
+          ${head}
+          ${device}
+          ${steering}
+          ${axes}
+          ${buttons}
+          ${extraSettings}
+          ${profiles}
+          ${footer}
+        </div>
+      `;
+    }
+
+    const tab = (name, label) => {
+      const selected = this._activeTab === name;
+      return `<button class="tab" type="button" role="tab" id="${name}-tab" aria-controls="${name}-panel" aria-selected="${selected}" tabindex="${selected ? '0' : '-1'}" data-tab="${name}">${label}</button>`;
+    };
+
     return `
       <div class="panel">
-        <div class="head">
-          <slot name="header"><h3>Wheel configuration</h3></slot>
-          <span class="badge" data-role="mode"></span>
+        ${head}
+        ${device}
+        <div class="tabs" role="tablist" aria-label="Wheel configuration sections">
+          ${tab('wheel', 'Wheel')}
+          ${tab('axes', 'Pedals & axes')}
+          ${tab('buttons', 'Buttons')}
         </div>
-        <div class="status" data-role="status" aria-live="polite"></div>
-        <webhid-device-picker></webhid-device-picker>
-        <webhid-steering-config></webhid-steering-config>
-        <webhid-axis-mapper></webhid-axis-mapper>
-        <webhid-button-mapper></webhid-button-mapper>
-        <slot name="extra-settings"></slot>
-        <div class="profiles">
-          <h3>Setup profile</h3>
-          <div class="actions">
-            <input data-role="name" type="text" placeholder="Profile name" aria-label="Profile name">
-            <select data-role="profile-select" aria-label="Stored setup profiles"></select>
-            <button type="button" data-action="save">Save</button>
-            <button type="button" data-action="export">Export</button>
-            <button type="button" data-action="import">Import</button>
-            <input data-role="file" type="file" accept="application/json,.json" hidden>
-          </div>
+        <div class="tab-panel" id="wheel-panel" role="tabpanel" aria-labelledby="wheel-tab" data-panel="wheel"${this._activeTab === 'wheel' ? '' : ' hidden'}>
+          ${steering}
+          ${extraSettings}
         </div>
-        <slot name="footer"></slot>
+        <div class="tab-panel" id="axes-panel" role="tabpanel" aria-labelledby="axes-tab" data-panel="axes"${this._activeTab === 'axes' ? '' : ' hidden'}>
+          ${axes}
+        </div>
+        <div class="tab-panel" id="buttons-panel" role="tabpanel" aria-labelledby="buttons-tab" data-panel="buttons"${this._activeTab === 'buttons' ? '' : ' hidden'}>
+          ${buttons}
+        </div>
+        ${profiles}
+        ${footer}
       </div>
     `;
   }
@@ -182,6 +277,45 @@ export class WebHIDConfigPanel extends WebHIDElement {
     });
     root.addEventListener('webhid-change', () => this._scheduleSave());
     root.addEventListener('webhid-connect', () => this._onConnect());
+    if (this.tabbed) {
+      for (const tab of root.querySelectorAll('[role="tab"]')) {
+        tab.addEventListener('click', () => this._selectTab(tab.dataset.tab));
+      }
+      const tablist = root.querySelector('[role="tablist"]');
+      tablist.addEventListener('keydown', (event) => this._onTabKeydown(event));
+    }
+  }
+
+  _selectTab(name, options = {}) {
+    const valid = ['wheel', 'axes', 'buttons'];
+    const next = valid.includes(name) ? name : 'wheel';
+    this._activeTab = next;
+    if (!this.shadowRoot) return;
+    for (const tab of this.shadowRoot.querySelectorAll('[role="tab"]')) {
+      const selected = tab.dataset.tab === next;
+      tab.setAttribute('aria-selected', selected ? 'true' : 'false');
+      tab.tabIndex = selected ? 0 : -1;
+      if (selected && options.focus) tab.focus();
+    }
+    for (const panel of this.shadowRoot.querySelectorAll('[role="tabpanel"]')) {
+      panel.hidden = panel.dataset.panel !== next;
+    }
+    if (options.emit) this.emit('webhid-tab-change', { tab: next });
+  }
+
+  _onTabKeydown(event) {
+    const keys = ['ArrowRight', 'ArrowLeft', 'Home', 'End'];
+    if (!keys.includes(event.key)) return;
+    const tabs = Array.from(this.shadowRoot.querySelectorAll('[role="tab"]'));
+    if (!tabs.length) return;
+    const current = tabs.findIndex(tab => tab.dataset.tab === this._activeTab);
+    let next = current;
+    if (event.key === 'ArrowRight') next = (current + 1) % tabs.length;
+    else if (event.key === 'ArrowLeft') next = (current - 1 + tabs.length) % tabs.length;
+    else if (event.key === 'Home') next = 0;
+    else if (event.key === 'End') next = tabs.length - 1;
+    event.preventDefault();
+    this._selectTab(tabs[next].dataset.tab, { focus: true, emit: true });
   }
 
   _onConnect() {
@@ -191,7 +325,7 @@ export class WebHIDConfigPanel extends WebHIDElement {
       this._migrateLegacy();
     }
     if (!this._store && this._manager &&
-        this._manager.sessionList.some(entry => entry.capabilities && entry.capabilities.steering)) {
+        this._manager.sessionList.some(entry => entry.session && entry.session.isConnected && entry.capabilities && entry.capabilities.steering)) {
       this._store = emptyStore();
     }
     this.refresh();
@@ -199,7 +333,10 @@ export class WebHIDConfigPanel extends WebHIDElement {
 
   _apply(profile) {
     if (!this._manager) return false;
-    const devices = this._manager.sessionList.map(entry => entry.device).filter(Boolean);
+    const devices = this._manager.sessionList
+      .filter(entry => entry.session && entry.session.isConnected)
+      .map(entry => entry.device)
+      .filter(Boolean);
     const result = this._profiles.match(profile, devices);
     const name = this.shadowRoot.querySelector('[data-role="name"]');
     if (name) name.value = profile.profileName;
@@ -252,7 +389,9 @@ export class WebHIDConfigPanel extends WebHIDElement {
   _migrateLegacy() {
     if (this._store) return;
     const snapshot = legacyStorageSnapshot();
-    const entry = this._manager && this._manager.sessionList.find(item => item.capabilities && item.capabilities.steering);
+    const entry = this._manager && this._manager.sessionList.find(item =>
+      item.session && item.session.isConnected && item.capabilities && item.capabilities.steering
+    );
     if (!snapshot || !entry || !entry.device) return;
     try {
       const profile = validateProfile({
@@ -284,7 +423,10 @@ export class WebHIDConfigPanel extends WebHIDElement {
   }
 
   _currentProfile() {
-    if (!this._manager || !this._manager.sessionList.length) {
+    const connected = this._manager
+      ? this._manager.sessionList.filter(entry => entry.session && entry.session.isConnected)
+      : [];
+    if (!connected.length) {
       this._status('Connect a device before saving or exporting a profile.', 'error');
       return null;
     }
@@ -293,7 +435,7 @@ export class WebHIDConfigPanel extends WebHIDElement {
       ? this._store.profiles.find(profile => profile.profileName === this._store.activeProfile)
       : null;
     try {
-      const first = this._manager.sessionList[0];
+      const first = connected[0];
       return validateProfile(this._manager.toSetup({
         profileName: (nameInput && nameInput.value.trim()) || (existing && existing.profileName) || `${first.name || 'Rig'} setup`,
         metadata: existing ? existing.metadata : {}
@@ -331,7 +473,8 @@ export class WebHIDConfigPanel extends WebHIDElement {
     if (this._saveTimer) clearTimeout(this._saveTimer);
     this._saveTimer = setTimeout(() => {
       this._saveTimer = null;
-      if (this._store && this._manager && this._manager.sessionList.length) this._save();
+      if (this._store && this._manager &&
+          this._manager.sessionList.some(entry => entry.session && entry.session.isConnected)) this._save();
     }, 500);
   }
 

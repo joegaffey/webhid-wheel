@@ -129,7 +129,7 @@ needs a user gesture.
 ### Web components
 
 ```html
-<webhid-config-panel storage-key="my-app:wheel-profiles">
+<webhid-config-panel storage-key="my-app:wheel-profiles" tabbed>
   <div slot="extra-settings"><!-- app-specific controls --></div>
 </webhid-config-panel>
 
@@ -141,6 +141,10 @@ needs a user gesture.
   panel.manager = new WheelManager();
 </script>
 ```
+
+`tabbed` is opt-in. It keeps Devices and Raw input visible, then shows Wheel,
+Pedals & axes and Buttons tabs while Setup profile stays below. Without
+`tabbed`, all sections render in one scroll.
 
 The panel is themed with `--wheel-bg-color`, `--wheel-fg-color`,
 `--wheel-muted-color`, `--wheel-accent`, `--wheel-border-color`,

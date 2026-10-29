@@ -54,9 +54,13 @@
         padding: 16px;
       }
       .panel h2 { margin: 0 0 10px; font-size: .78rem; text-transform: uppercase; letter-spacing: .14em; color: var(--muted); font-weight: 700; }
-      .layout { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(280px, .65fr); gap: 16px; align-items: start; }
-      @media (max-width: 880px) { .layout { grid-template-columns: 1fr; } }
-      .stack { display: grid; gap: 16px; }
+      .layout { max-width: 900px; margin: 0 auto; }
+      .device-extra { margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--border); }
+      .device-extra h2 { margin: 0 0 10px; font-size: .78rem; text-transform: uppercase; letter-spacing: .14em; color: var(--muted); font-weight: 700; }
+      .steering-visual { max-width: 240px; margin: 0 auto 8px; text-align: center; }
+      .steering-visual .wheel-svg { max-width: 220px; }
+      .steering-visual .hint { margin-top: 4px; }
+      .steering-extra { margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--border); }
       .device-list { display: grid; gap: 8px; }
       .device-card {
         display: grid; grid-template-columns: 1fr auto; gap: 10px; align-items: center;
@@ -114,29 +118,14 @@
       </header>
 
       <div class="layout">
-        <div class="stack">
-          <webhid-config-panel id="configPanel" storage-key="webhid-wheel:v3:profiles">
-            <div slot="extra-settings" class="extra-settings">
-              <div class="panel">
-                <h2>Force feedback test</h2>
-                <div class="control">
-                  <label for="force">Constant force</label>
-                  <input type="range" id="force" min="-100" max="100" value="0">
-                  <span class="val" id="forceValue">0%</span>
-                </div>
-                <div class="toolbar" style="justify-content:flex-start;margin-top:10px">
-                  <button id="applyForce" class="button">Apply test force</button>
-                  <button id="stopFfb" class="button">Stop FFB</button>
-                </div>
-                <p class="hint" id="ffbHint">Connect a force-feedback wheel to test output.</p>
-              </div>
-            </div>
-          </webhid-config-panel>
-        </div>
+        <webhid-config-panel id="configPanel" storage-key="webhid-wheel:v3:profiles" tabbed>
+          <div slot="device-extra" class="device-extra">
+            <h2>Raw input</h2>
+            <div id="debug"><div class="dbg-empty">No data</div></div>
+            <div id="exportOutput" class="hidden"><textarea id="exportText" readonly></textarea></div>
+          </div>
 
-        <div class="stack">
-          <section class="panel">
-            <h2>Wheel</h2>
+          <div slot="steering-visual" class="steering-visual">
             <svg class="wheel-svg" width="300" height="300" viewBox="0 0 300 300" aria-label="Steering wheel position">
               <g transform="translate(150 150) scale(1.12) translate(-150 -150)">
                 <path id="steerArc"></path>
@@ -150,15 +139,25 @@
               </g>
               <text id="angleReadout" x="150" y="288" text-anchor="middle"></text>
             </svg>
-            <p class="hint" id="wheelHint">Select a wheel from the panel above.</p>
-          </section>
+            <p class="hint" id="wheelHint">Select a steering source in the panel.</p>
+          </div>
 
-          <section class="panel">
-            <h2>Raw input</h2>
-            <div id="debug"><div class="dbg-empty">No data</div></div>
-            <div id="exportOutput" class="hidden"><textarea id="exportText" readonly></textarea></div>
-          </section>
-        </div>
+          <div slot="steering-extra" class="extra-settings steering-extra">
+            <div class="panel">
+              <h2>Force feedback test</h2>
+              <div class="control">
+                <label for="force">Constant force</label>
+                <input type="range" id="force" min="-100" max="100" value="0">
+                <span class="val" id="forceValue">0%</span>
+              </div>
+              <div class="toolbar" style="justify-content:flex-start;margin-top:10px">
+                <button id="applyForce" class="button">Apply test force</button>
+                <button id="stopFfb" class="button">Stop FFB</button>
+              </div>
+              <p class="hint" id="ffbHint">Connect a force-feedback device and select a force output.</p>
+            </div>
+          </div>
+        </webhid-config-panel>
       </div>
 
       <footer>

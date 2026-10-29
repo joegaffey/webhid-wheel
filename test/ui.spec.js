@@ -11,8 +11,10 @@ test('demo boots with the config panel and no page errors', async ({ page }) => 
   await expect(page.locator('webhid-config-panel')).toBeVisible();
   await expect(page.locator('webhid-config-panel').locator('webhid-device-picker')).toBeVisible();
   await expect(page.locator('webhid-config-panel').locator('webhid-steering-config')).toBeVisible();
-  await expect(page.locator('webhid-config-panel').locator('webhid-axis-mapper')).toBeVisible();
-  await expect(page.locator('webhid-config-panel').locator('webhid-button-mapper')).toBeVisible();
+  await expect(page.locator('webhid-config-panel').locator('[role="tab"]')).toHaveCount(3);
+  await expect(page.locator('webhid-config-panel').locator('[data-panel="wheel"]')).toBeVisible();
+  await expect(page.locator('webhid-config-panel').locator('[data-panel="axes"]')).toBeHidden();
+  await expect(page.locator('webhid-config-panel').locator('[data-panel="buttons"]')).toBeHidden();
   await expect(page.locator('#force')).toBeVisible();
   await expect(page.locator('webhid-config-panel').locator('[data-role="profile-select"]')).toBeVisible();
 
@@ -281,4 +283,217 @@ test('mapping controls list connected device names and never a synthetic wheel r
   expect(allOptions.some(option => option.text === 'Fake Pedals')).toBe(true);
   expect(result.steeringOptions.find(option => option.text === 'Fake Wheel')?.value).toBe(result.wheelId);
   expect(result.axisOptions.find(option => option.text === 'Fake Pedals')?.value).toBe(result.pedalId);
+});
+
+test('raw input follows the selected device and lives under the device list', async ({ page }) => {
+  await page.goto('/');
+  const setup = await page.evaluate(async () => {
+    const manager = window.__webhidDemo.manager;
+    const usage = (page, id) => (page << 16) | id;
+    const item = (usages, reportSize, reportCount = 1, min = 0, max = (1 << reportSize) - 1) => ({
+      usages, reportSize, reportCount, logicalMinimum: min, logicalMaximum: max
+    });
+    const fake = (name, descriptor, vendorId, productId) => ({
+      collections: descriptor,
+      productName: name,
+      vendorId,
+      productId,
+      opened: false,
+      oninputreport: null,
+      async open() { this.opened = true; },
+      async close() { this.opened = false; },
+      async sendReport() {}
+    });
+    const wheel = fake('Selected Wheel', [{
+      usagePage: 1,
+      usage: 4,
+      inputReports: [{
+        reportId: 1,
+        items: [
+          item([usage(1, 0x30)], 16, 1, 0, 65535),
+          item([usage(1, 0x31)], 8, 1, 0, 255),
+          item([usage(9, 1)], 1, 8, 0, 1)
+        ]
+      }],
+      outputReports: [],
+      featureReports: []
+    }], 0x2001, 0x3001);
+    const pedals = fake('Selected Pedals', [{
+      usagePage: 1,
+      usage: 5,
+      inputReports: [{
+        reportId: 2,
+        items: [item([usage(1, 0x32)], 8, 1, 0, 255)]
+      }],
+      outputReports: [],
+      featureReports: []
+    }], 0x2002, 0x3002);
+
+    const wheelEntry = await manager.connect(wheel);
+    const pedalEntry = await manager.connect(pedals);
+    wheel.oninputreport({ data: new DataView(Uint8Array.from([0x00, 0x80, 0x00, 0x00, 0x00]).buffer), timeStamp: 1, reportId: 1 });
+    pedals.oninputreport({ data: new DataView(Uint8Array.from([0xff]).buffer), timeStamp: 1, reportId: 2 });
+
+    await new Promise(resolve => requestAnimationFrame(resolve));
+    await new Promise(resolve => setTimeout(resolve, 30));
+
+    const panel = document.querySelector('webhid-config-panel');
+    const picker = panel.shadowRoot.querySelector('webhid-device-picker');
+    const row = [...picker.shadowRoot.querySelectorAll('[data-select]')]
+      .find(item => item.textContent.includes('Selected Pedals'));
+    row.click();
+    await new Promise(resolve => setTimeout(resolve, 30));
+
+    const raw = document.querySelector('[slot="device-extra"]');
+    return {
+      wheelId: wheelEntry.id,
+      pedalId: pedalEntry.id,
+      rawText: document.querySelector('#debug').textContent,
+      rawUnderDevices: !!picker.shadowRoot.querySelector('slot[name="extra"]'),
+      rawSlotChild: !!raw && !!raw.querySelector('#debug'),
+      visualSlot: !!document.querySelector('#configPanel > [slot="steering-visual"] .wheel-svg'),
+      ffbSlot: !!document.querySelector('#configPanel > [slot="steering-extra"] #force'),
+      oldWheelCard: [...document.querySelectorAll('section.panel h2')].some(h2 => h2.textContent.trim() === 'Wheel')
+    };
+  });
+
+  expect(setup.rawUnderDevices).toBe(true);
+  expect(setup.rawSlotChild).toBe(true);
+  expect(setup.rawText).toContain('Selected Pedals');
+  expect(setup.visualSlot).toBe(true);
+  expect(setup.ffbSlot).toBe(true);
+  expect(setup.oldWheelCard).toBe(false);
+});
+
+test('disconnected devices leave the active UI and raw input falls back', async ({ page }) => {
+  await page.goto('/');
+  const result = await page.evaluate(async () => {
+    const manager = window.__webhidDemo.manager;
+    const usage = (page, id) => (page << 16) | id;
+    const item = (usages, reportSize, reportCount = 1, min = 0, max = (1 << reportSize) - 1) => ({
+      usages, reportSize, reportCount, logicalMinimum: min, logicalMaximum: max
+    });
+    const fake = (name, descriptor, vendorId, productId) => ({
+      collections: descriptor,
+      productName: name,
+      vendorId,
+      productId,
+      opened: false,
+      oninputreport: null,
+      async open() { this.opened = true; },
+      async close() { this.opened = false; },
+      async sendReport() {}
+    });
+    const wheel = fake('Offline Wheel', [{
+      usagePage: 1,
+      usage: 4,
+      inputReports: [{
+        reportId: 1,
+        items: [
+          item([usage(1, 0x30)], 16, 1, 0, 65535),
+          item([usage(1, 0x31)], 8, 1, 0, 255),
+          item([usage(9, 1)], 1, 8, 0, 1)
+        ]
+      }],
+      outputReports: [],
+      featureReports: []
+    }], 0x4001, 0x5001);
+    const pedals = fake('Offline Pedals', [{
+      usagePage: 1,
+      usage: 5,
+      inputReports: [{ reportId: 2, items: [item([usage(1, 0x32)], 8, 1, 0, 255)] }],
+      outputReports: [],
+      featureReports: []
+    }], 0x4002, 0x5002);
+
+    const wheelEntry = await manager.connect(wheel);
+    const pedalEntry = await manager.connect(pedals);
+    wheel.oninputreport({ data: new DataView(Uint8Array.from([0, 0x80, 0, 0, 0]).buffer), timeStamp: 1, reportId: 1 });
+    pedals.oninputreport({ data: new DataView(Uint8Array.from([0x80]).buffer), timeStamp: 1, reportId: 2 });
+    await new Promise(resolve => setTimeout(resolve, 30));
+
+    const panel = document.querySelector('webhid-config-panel');
+    const picker = panel.shadowRoot.querySelector('webhid-device-picker');
+    const pedalRow = [...picker.shadowRoot.querySelectorAll('[data-select]')]
+      .find(item => item.textContent.includes('Offline Pedals'));
+    pedalRow.click();
+    await new Promise(resolve => setTimeout(resolve, 20));
+    const before = document.querySelector('#debug').textContent;
+
+    await manager.disconnect(pedalEntry.id);
+    await new Promise(resolve => setTimeout(resolve, 40));
+
+    const rowsAfter = [...picker.shadowRoot.querySelectorAll('[data-select]')].map(row => row.textContent);
+    const axes = panel.shadowRoot.querySelector('webhid-axis-mapper');
+    const axisOptions = [...axes.shadowRoot.querySelectorAll('[data-field="device"] option')].map(option => option.textContent);
+    return {
+      before,
+      rowsAfter,
+      rawAfter: document.querySelector('#debug').textContent,
+      axisOptions,
+      wheelId: wheelEntry.id,
+      pedalId: pedalEntry.id,
+      sessionStillKnown: !!manager.sessions.get(pedalEntry.id)
+    };
+  });
+
+  expect(result.before).toContain('Offline Pedals');
+  expect(result.rowsAfter.some(text => text.includes('Offline Pedals'))).toBe(false);
+  expect(result.rowsAfter.some(text => text.includes('Offline Wheel'))).toBe(true);
+  expect(result.rawAfter).toContain('Offline Wheel');
+  expect(result.axisOptions.some(text => text.includes('Offline Pedals'))).toBe(false);
+  expect(result.sessionStillKnown).toBe(true);
+});
+
+test('tabbed config switches panels while devices and profiles stay visible', async ({ page }) => {
+  await page.goto('/');
+  const panel = page.locator('webhid-config-panel');
+  const wheelTab = panel.getByRole('tab', { name: 'Wheel' });
+  const axesTab = panel.getByRole('tab', { name: 'Pedals & axes' });
+  const buttonsTab = panel.getByRole('tab', { name: 'Buttons' });
+
+  await expect(wheelTab).toHaveAttribute('aria-selected', 'true');
+  await expect(panel.locator('[data-panel="wheel"]')).toBeVisible();
+  await expect(panel.locator('[data-panel="axes"]')).toBeHidden();
+
+  await axesTab.click();
+  await expect(axesTab).toHaveAttribute('aria-selected', 'true');
+  await expect(wheelTab).toHaveAttribute('aria-selected', 'false');
+  await expect(panel.locator('[data-panel="wheel"]')).toBeHidden();
+  await expect(panel.locator('[data-panel="axes"]')).toBeVisible();
+  await expect(panel.locator('webhid-device-picker')).toBeVisible();
+  await expect(panel.locator('[data-role="profile-select"]')).toBeVisible();
+
+  await buttonsTab.click();
+  await expect(panel.locator('[data-panel="axes"]')).toBeHidden();
+  await expect(panel.locator('[data-panel="buttons"]')).toBeVisible();
+
+  await buttonsTab.focus();
+  await page.keyboard.press('Home');
+  await expect(wheelTab).toHaveAttribute('aria-selected', 'true');
+  await page.keyboard.press('ArrowRight');
+  await expect(axesTab).toHaveAttribute('aria-selected', 'true');
+  await page.keyboard.press('End');
+  await expect(buttonsTab).toHaveAttribute('aria-selected', 'true');
+  await page.keyboard.press('ArrowLeft');
+  await expect(axesTab).toHaveAttribute('aria-selected', 'true');
+});
+
+test('config panel keeps the single-scroll layout without the tabbed attribute', async ({ page }) => {
+  await page.goto('/');
+  const result = await page.evaluate(async () => {
+    const panel = document.createElement('webhid-config-panel');
+    document.body.append(panel);
+    await new Promise(resolve => requestAnimationFrame(resolve));
+    return {
+      tabs: panel.shadowRoot.querySelectorAll('[role="tablist"]').length,
+      steering: !!panel.shadowRoot.querySelector('webhid-steering-config'),
+      axes: !!panel.shadowRoot.querySelector('webhid-axis-mapper'),
+      buttons: !!panel.shadowRoot.querySelector('webhid-button-mapper')
+    };
+  });
+  expect(result.tabs).toBe(0);
+  expect(result.steering).toBe(true);
+  expect(result.axes).toBe(true);
+  expect(result.buttons).toBe(true);
 });

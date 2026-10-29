@@ -7,6 +7,16 @@ export class WebHIDDevicePicker extends WebHIDElement {
     this._managerHandler = () => this.scheduleRefresh();
     this._hidHandler = () => this.scheduleRefresh();
     this._busy = false;
+    this._selectedId = null;
+  }
+
+  set selectedId(value) {
+    this._selectedId = value || null;
+    if (this.isConnected) this.refresh();
+  }
+
+  get selectedId() {
+    return this._selectedId;
   }
 
   connectedCallback() {
@@ -70,6 +80,9 @@ export class WebHIDDevicePicker extends WebHIDElement {
       .cap { font-size: 9px; border: 1px solid var(--wheel-border-color, #2a303a); border-radius: 999px; padding: 1px 5px; color: var(--wheel-muted-color, #8f9bab); }
       .cap.on { color: var(--wheel-success, #34d399); border-color: currentColor; }
       .remove { min-height: 22px; padding: 2px 6px; }
+      .list-item { cursor: pointer; }
+      .list-item.selected { border-color: var(--wheel-accent, #38bdf8); box-shadow: inset 0 0 0 1px var(--wheel-accent, #38bdf8); }
+      slot[name="extra"] { display: block; }
     `;
   }
 
@@ -88,6 +101,7 @@ export class WebHIDDevicePicker extends WebHIDElement {
           <button type="button" data-action="copy" title="Copy diagnostic JSON">Copy</button>
           <button type="button" data-action="export" title="Download diagnostic JSON">Export</button>
         </div>
+        <slot name="extra"></slot>
       </div>
     `;
   }
@@ -96,11 +110,20 @@ export class WebHIDDevicePicker extends WebHIDElement {
     const root = this.shadowRoot;
     root.querySelector('[data-action="connect"]').addEventListener('click', () => this._connect());
     root.querySelector('[data-action="disconnect-all"]').addEventListener('click', () => this._disconnectAll());
-    root.querySelector('[data-action="copy"]').addEventListener('click', () => this.emit('webhid-copy', { sessions: this.manager ? this.manager.sessionList : [] }));
-    root.querySelector('[data-action="export"]').addEventListener('click', () => this.emit('webhid-export', { sessions: this.manager ? this.manager.sessionList : [] }));
+    root.querySelector('[data-action="copy"]').addEventListener('click', () => this.emit('webhid-copy', { sessions: this._connectedSessions() }));
+    root.querySelector('[data-action="export"]').addEventListener('click', () => this.emit('webhid-export', { sessions: this._connectedSessions() }));
     root.querySelector('[data-role="list"]').addEventListener('click', (event) => {
-      const button = event.target.closest('[data-remove]');
-      if (button) this._disconnect(button.dataset.remove);
+      const remove = event.target.closest('[data-remove]');
+      if (remove) {
+        this._disconnect(remove.dataset.remove);
+        return;
+      }
+      const row = event.target.closest('[data-select]');
+      if (!row) return;
+      this._selectedId = row.dataset.select;
+      this.refresh();
+      const entry = this.manager && this.manager.sessions ? this.manager.sessions.get(this._selectedId) : null;
+      if (entry) this.emit('webhid-select', { session: entry });
     });
   }
 
@@ -153,6 +176,11 @@ export class WebHIDDevicePicker extends WebHIDElement {
     }
   }
 
+  _connectedSessions() {
+    if (!this.manager) return [];
+    return this.manager.sessionList.filter(entry => entry.session && entry.session.isConnected);
+  }
+
   refresh() {
     if (!this.shadowRoot || !this.shadowRoot.querySelector('[data-role="status"]')) return;
     this._bindManager();
@@ -166,8 +194,12 @@ export class WebHIDDevicePicker extends WebHIDElement {
     const disconnectAll = this.shadowRoot.querySelector('[data-action="disconnect-all"]');
     const copy = this.shadowRoot.querySelector('[data-action="copy"]');
     const exportButton = this.shadowRoot.querySelector('[data-action="export"]');
-    const sessions = this.manager ? this.manager.sessionList : [];
-    const connected = sessions.filter(entry => entry.session && entry.session.isConnected);
+    const sessions = this._connectedSessions();
+    const connected = sessions;
+
+    if (!this._selectedId || !sessions.some(entry => entry.id === this._selectedId)) {
+      this._selectedId = sessions[0] ? sessions[0].id : null;
+    }
 
     state.textContent = available ? 'WebHID available' : 'WebHID unavailable';
     if (!this.manager) {
@@ -195,7 +227,7 @@ export class WebHIDDevicePicker extends WebHIDElement {
         const caps = entry.capabilities || {};
         const isConnected = !!(entry.session && entry.session.isConnected);
         return `
-          <div class="list-item">
+          <div class="list-item${entry.id === this._selectedId ? ' selected' : ''}" data-select="${escapeHtml(entry.id)}">
             <div>
               <div class="device-name">${escapeHtml(entry.name || entry.id)}</div>
               <div class="device-id">${escapeHtml(entry.id)} · ${escapeHtml(entry.driver)}</div>

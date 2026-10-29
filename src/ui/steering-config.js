@@ -69,12 +69,14 @@ export class WebHIDSteeringConfig extends WebHIDElement {
       .check { display: flex; align-items: center; gap: 6px; margin: 6px 0; }
       .device-field { display: grid; grid-template-columns: 1fr minmax(120px, 1.4fr); gap: 4px 8px; align-items: center; margin: 6px 0; }
       .device-field label { color: var(--wheel-muted-color, #8f9bab); }
+      ::slotted(*) { display: block; }
     `;
   }
 
   template() {
     return `
       <div class="panel">
+        <slot name="visual"></slot>
         <div class="section">
           <h3>Steering</h3>
           <div class="device-field">
@@ -115,6 +117,7 @@ export class WebHIDSteeringConfig extends WebHIDElement {
             <button type="button" data-action="reset">Reset</button>
           </div>
         </div>
+        <slot name="extra"></slot>
       </div>
     `;
   }
@@ -209,7 +212,7 @@ export class WebHIDSteeringConfig extends WebHIDElement {
     const devices = [];
     if (!this.manager || !this.manager.sessionList) return devices;
     for (const entry of this.manager.sessionList) {
-      if (predicate(entry)) devices.push(entry);
+      if (entry.session && entry.session.isConnected && predicate(entry)) devices.push(entry);
     }
     return devices;
   }

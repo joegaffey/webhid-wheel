@@ -111,6 +111,7 @@ export class WebHIDButtonMapper extends WebHIDElement {
   _devices() {
     if (!this.manager || !this.manager.sessionList) return [];
     return this.manager.sessionList.filter(entry =>
+      entry.session && entry.session.isConnected &&
       entry.capabilities && (entry.capabilities.buttons > 0 || entry.capabilities.hats > 0)
     );
   }

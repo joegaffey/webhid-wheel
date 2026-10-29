@@ -25,9 +25,18 @@ export interface WebHIDCaptureActionDetail {
   sessions: WheelManagerSession[];
 }
 
+export interface WebHIDSelectDetail {
+  session: WheelManagerSession;
+}
+
+export interface WebHIDTabDetail {
+  tab: 'wheel' | 'axes' | 'buttons';
+}
+
 export declare class WebHIDDevicePicker extends HTMLElement {
   manager: WheelManager | null;
   filters: HIDDeviceFilter[] | null;
+  selectedId: string | null;
   refresh(): void;
 }
 
@@ -53,6 +62,8 @@ export declare class WebHIDConfigPanel extends HTMLElement {
   manager: WheelManager | null;
   profiles: SetupProfileManager | null;
   storageKey: string | null;
+  tabbed: boolean;
+  activeTab: 'wheel' | 'axes' | 'buttons';
   refresh(): void;
 }
 

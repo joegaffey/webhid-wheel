@@ -146,11 +146,13 @@ recover those devices' hardware; those mappings are recorded under
 The demo uses `<webhid-config-panel>` and its sub-elements:
 
 - one **Connect device** action
-- device list with capability badges and per-device disconnect
-- steering source and force-output selection
-- throttle, brake, clutch and handbrake mapping
-- fixed button/shifter actions
-- setup profile import/export
+- connected device list with capability badges, per-device selection and disconnect
+- disconnected sessions are hidden but retained for reconnect and mapping reuse
+- raw input under the selected device, following its selection
+- steering source and force-output selection in the Wheel tab
+- throttle, brake, clutch and handbrake mapping in the Pedals & axes tab
+- fixed button/shifter actions in the Buttons tab
+- setup profile import/export below the tabs
 - Copy / Export diagnostic JSON
 
 Devices are listed by name and session ID. There is no synthetic `wheel` role.

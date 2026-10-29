@@ -177,3 +177,18 @@ test('WheelManager connects an authorized device without requestDevice', async (
     globalThis.navigator.hid = original;
   }
 });
+
+test('WheelManager reuses a disconnected session by hardware signature', async () => {
+  const manager = new WheelManager();
+  const first = new FakeDevice('Reusable Wheel', wheelDescriptor(), 0x5151, 0x6161);
+  const entry = await manager.connect(first);
+  await manager.disconnect(entry.id);
+  assert.equal(manager.isConnected, false);
+
+  const second = new FakeDevice('Reusable Wheel', wheelDescriptor(), 0x5151, 0x6161);
+  const reconnected = await manager.connect(second);
+  assert.equal(reconnected.id, entry.id);
+  assert.equal(reconnected.device, second);
+  assert.equal(manager.isConnected, true);
+  assert.equal(manager.sessionList.length, 1);
+});
