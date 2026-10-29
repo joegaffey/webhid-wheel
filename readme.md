@@ -10,7 +10,7 @@ Plug devices in over USB, click **Add device**, and pick one from the browser's 
 
 - **Input** — steering, axes, buttons and POV hats from any HID wheel, gamepad, pedal set or button box, using a small profile registry with a generic **HID-descriptor fallback** for unknown devices.
 - **Force feedback** — constant force where the device supports it: built-in CAMMUS C5/C12, FFBeast and classic Logitech (G29 / Driving Force GT) profiles, plus automatic **USB-PID** detection for compliant devices. `constantFast()` reuses the running effect for high-rate updates. Includes force inversion and is safe by default (low strength, explicit stop).
-- **Mapping and capture** — combine multiple HID devices, map axes/buttons/hats to semantic channels, and copy/download raw device captures for known-device profiles.
+- **Mapping and capture** — combine multiple HID devices, map axes/buttons/hats to semantic channels, and copy/download raw device captures for known-device profiles. Mapping rows start unbound with **Select device**; choose a device to enable **Set**, which toggles to **Cancel** while listening. **Clear** removes the mapping and resets the row.
 - **Setup profiles** — multi-device profile schema with hardware matching, validation, v1 migration, and reconnect to already-authorized devices. Offline profile devices stay visible as offline; Remove affects the working device list, and Save persists the change to the profile. Profiles can also be deleted.
 - **Web components** — drop-in `<webhid-config-panel>` with device picker, steering/FFB controls, axis and button mapping. Shadow DOM, CSS custom properties and app extension slots.
 

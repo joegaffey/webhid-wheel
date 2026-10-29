@@ -1,7 +1,7 @@
 # HID device mapping and capture
 
 Status: mapping, setup profiles and config elements implemented in
-`webhid-wheel` 0.4.35 (2026-10-29). See the
+`webhid-wheel` 0.4.36 (2026-10-29). See the
 [component integration guide](./component-integration.md) for the consumer
 contract.
 
@@ -166,12 +166,18 @@ export. It is not stored in localStorage.
 
 For each mapping row:
 
-1. Select the active device.
+1. Select the active device. Rows start unbound with **Select device**, and
+   **Set** stays disabled until a connected device is chosen.
 2. Press **Set**.
 3. Move or press the target input.
 4. The page records the device, input type/index, usage, raw min/max and a small
    set of samples.
 5. The mapping is saved.
+
+While a row is listening, **Set** becomes **Cancel**. Press it again to stop
+capture without changing the mapping. **Clear** removes the mapping and resets
+the row to **Select device**. Button telemetry shows `0` or `1`; axis telemetry
+keeps decimal values.
 
 The export is one unified document:
 

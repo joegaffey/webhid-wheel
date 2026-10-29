@@ -1685,3 +1685,131 @@ test('Set and Clear stay grouped and right aligned on mobile mappings', async ({
   expect(button.gap).toBeLessThan(12);
   expect(button.rightGap).toBeLessThan(12);
 });
+
+test('mapping rows require an explicit device, Set cancels, and Clear resets', async ({ page }) => {
+  await page.goto('/');
+  const result = await page.evaluate(async () => {
+    const entries = [
+      {
+        id: 'axis1',
+        name: 'Axis Device',
+        driver: 'generic',
+        hardware: { vendorId: 1, productId: 2, productName: 'Axis Device', signature: null },
+        capabilities: { axes: 1, buttons: 0, hats: 0, ffb: false },
+        session: { isConnected: true, state: { axes: [0.5], buttons: [], hats: [] } }
+      },
+      {
+        id: 'button1',
+        name: 'Button Device',
+        driver: 'generic',
+        hardware: { vendorId: 1, productId: 3, productName: 'Button Device', signature: null },
+        capabilities: { axes: 0, buttons: 1, hats: 0, ffb: false },
+        session: { isConnected: true, state: { axes: [], buttons: [false], hats: [] } }
+      }
+    ];
+    let store = { axes: {}, buttons: {} };
+    const manager = {
+      sessionList: entries,
+      sessions: new Map(entries.map(entry => [entry.id, entry])),
+      getMapping() { return { axes: { ...store.axes }, buttons: { ...store.buttons } }; },
+      setMapping(mapping) { store = mapping; },
+      on() {},
+      off() {}
+    };
+
+    const axis = document.createElement('webhid-axis-mapper');
+    const button = document.createElement('webhid-button-mapper');
+    axis.manager = manager;
+    button.manager = manager;
+    document.body.append(axis, button);
+    await new Promise(resolve => requestAnimationFrame(resolve));
+
+    const axisRow = axis.shadowRoot.querySelector('[data-channel="throttle"]');
+    const axisSelect = axisRow.querySelector('[data-field="device"]');
+    const axisSet = axisRow.querySelector('[data-action="set"]');
+    const axisBefore = {
+      value: axisSelect.value,
+      placeholder: axisSelect.selectedOptions[0].textContent,
+      setDisabled: axisSet.disabled
+    };
+    axisSelect.value = 'axis1';
+    axisSelect.dispatchEvent(new Event('change', { bubbles: true }));
+    const axisAfterSetEnabled = !axisSet.disabled;
+    axisSet.click();
+    const axisArmed = { text: axisSet.textContent, armed: axisRow.classList.contains('armed') };
+    axisSet.click();
+    const axisCancelled = { text: axisSet.textContent, armed: axisRow.classList.contains('armed') };
+    axisRow.querySelector('[data-action="clear"]').click();
+    const axisCleared = {
+      value: axisSelect.value,
+      setDisabled: axisSet.disabled,
+      mapped: !!store.axes.throttle
+    };
+
+    const buttonRow = button.shadowRoot.querySelector('[data-channel="reverse"]');
+    const buttonSelect = buttonRow.querySelector('[data-field="device"]');
+    const buttonSet = buttonRow.querySelector('[data-action="set"]');
+    const buttonBefore = {
+      value: buttonSelect.value,
+      placeholder: buttonSelect.selectedOptions[0].textContent,
+      setDisabled: buttonSet.disabled
+    };
+    buttonSelect.value = 'button1';
+    buttonSelect.dispatchEvent(new Event('change', { bubbles: true }));
+    const buttonAfterSetEnabled = !buttonSet.disabled;
+    const state = manager.sessions.get('button1').session.state;
+    const live = buttonRow.querySelector('[data-live]');
+    state.buttons[0] = true;
+    button.refresh();
+    const pressed = live.textContent;
+    state.buttons[0] = false;
+    button.refresh();
+    const released = live.textContent;
+    buttonSet.click();
+    const buttonArmed = { text: buttonSet.textContent, armed: buttonRow.classList.contains('armed') };
+    buttonSet.click();
+    const buttonCancelled = { text: buttonSet.textContent, armed: buttonRow.classList.contains('armed') };
+    buttonRow.querySelector('[data-action="clear"]').click();
+    const buttonCleared = {
+      value: buttonSelect.value,
+      setDisabled: buttonSet.disabled,
+      live: live.textContent,
+      mapped: !!store.buttons.reverse,
+      directionHidden: buttonRow.classList.contains('direction-hidden')
+    };
+
+    return {
+      axisBefore,
+      axisAfterSetEnabled,
+      axisArmed,
+      axisCancelled,
+      axisCleared,
+      buttonBefore,
+      buttonAfterSetEnabled,
+      pressed,
+      released,
+      buttonArmed,
+      buttonCancelled,
+      buttonCleared
+    };
+  });
+
+  expect(result.axisBefore).toEqual({ value: '', placeholder: 'Select device', setDisabled: true });
+  expect(result.axisAfterSetEnabled).toBe(true);
+  expect(result.axisArmed).toEqual({ text: 'Cancel', armed: true });
+  expect(result.axisCancelled).toEqual({ text: 'Set', armed: false });
+  expect(result.axisCleared).toEqual({ value: '', setDisabled: true, mapped: false });
+  expect(result.buttonBefore).toEqual({ value: '', placeholder: 'Select device', setDisabled: true });
+  expect(result.buttonAfterSetEnabled).toBe(true);
+  expect(result.pressed).toBe('1');
+  expect(result.released).toBe('0');
+  expect(result.buttonArmed).toEqual({ text: 'Cancel', armed: true });
+  expect(result.buttonCancelled).toEqual({ text: 'Set', armed: false });
+  expect(result.buttonCleared).toEqual({
+    value: '',
+    setDisabled: true,
+    live: '0',
+    mapped: false,
+    directionHidden: true
+  });
+});

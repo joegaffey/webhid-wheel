@@ -134,14 +134,16 @@ export class WebHIDButtonMapper extends WebHIDElement {
   }
 
   _options(devices, current) {
-    const options = devices.map(device => {
-      const label = device.name || device.id;
-      return `<option value="${escapeHtml(device.id)}"${device.id === current ? ' selected' : ''}>${escapeHtml(label)}</option>`;
-    });
-    if (current && !devices.some(device => device.id === current)) {
-      options.unshift(`<option value="${escapeHtml(current)}" selected>Missing device (${escapeHtml(current)})</option>`);
+    if (!devices.length) return '<option value="">No devices</option>';
+    const missing = current && !devices.some(device => device.id === current);
+    const options = [`<option value=""${current ? '' : ' selected'}>Select device</option>`];
+    if (missing) {
+      options.push(`<option value="${escapeHtml(current)}" selected>Missing device (${escapeHtml(current)})</option>`);
     }
-    if (!options.length) options.push('<option value="">No devices</option>');
+    for (const device of devices) {
+      const label = device.name || device.id;
+      options.push(`<option value="${escapeHtml(device.id)}"${device.id === current ? ' selected' : ''}>${escapeHtml(label)}</option>`);
+    }
     return options.join('');
   }
 
@@ -153,7 +155,9 @@ export class WebHIDButtonMapper extends WebHIDElement {
     const disabled = devices.length ? '' : ' disabled';
     const rows = BUTTON_ACTIONS.map(([channel, label]) => {
       const entry = mapping[channel] || {};
-      const device = entry.device || (devices[0] && devices[0].id) || '';
+      const device = entry.device || '';
+      const canSet = devices.length && device && devices.some(item => item.id === device);
+      const setDisabled = canSet ? '' : ' disabled';
       const source = entry.source === 'hat' ? 'hat' : 'button';
       const index = Number.isInteger(entry.index) ? entry.index : 0;
       const direction = entry.direction || 'up';
@@ -168,9 +172,9 @@ export class WebHIDButtonMapper extends WebHIDElement {
           <input data-field="index" type="number" min="0" step="1" value="${index}" aria-label="${label} index"${disabled}>
           <select data-field="direction"${disabled}>${HAT_DIRECTIONS.map(dir => `<option value="${dir}"${dir === direction ? ' selected' : ''}>${dir}</option>`).join('')}</select>
           <div class="actions">
-            <span class="live" data-live="0.00">0.00</span>
+            <span class="live" data-live="0">0</span>
             <div class="buttons">
-              <button type="button" data-action="set"${disabled}>Set</button>
+              <button type="button" data-action="set"${setDisabled}>Set</button>
               <button type="button" data-action="clear"${disabled}>Clear</button>
             </div>
           </div>
@@ -195,14 +199,8 @@ export class WebHIDButtonMapper extends WebHIDElement {
           this._commit();
         });
       }
-      row.querySelector('[data-action="set"]').addEventListener('click', () => this._arm(row.dataset.channel));
-      row.querySelector('[data-action="clear"]').addEventListener('click', () => {
-        const mapping = this.manager && this.manager.getMapping ? this.manager.getMapping() : { axes: {}, buttons: {} };
-        delete mapping.buttons[row.dataset.channel];
-        if (this.manager) this.manager.setMapping(mapping);
-        this.emit('webhid-change', { mapping });
-        this._updateLive();
-      });
+      row.querySelector('[data-action="set"]').addEventListener('click', () => this._toggleCapture(row.dataset.channel));
+      row.querySelector('[data-action="clear"]').addEventListener('click', () => this._clear(row.dataset.channel));
     }
   }
 
@@ -259,13 +257,14 @@ export class WebHIDButtonMapper extends WebHIDElement {
       started: Date.now()
     };
     row.classList.add('armed');
-    row.querySelector('[data-action="set"]').textContent = 'Listening…';
+    row.querySelector('[data-action="set"]').textContent = 'Cancel';
   }
 
   _updateLive() {
     if (!this.shadowRoot) return;
+    if (this._capture && Date.now() - this._capture.started > 10000) this._cancelCapture();
     const capture = this._capture;
-    if (capture && Date.now() - capture.started > 10000) this._cancelCapture();
+    const availableIds = new Set(this._devices().map(device => device.id));
 
     for (const [channel] of BUTTON_ACTIONS) {
       const row = this._row(channel);
@@ -282,7 +281,13 @@ export class WebHIDButtonMapper extends WebHIDElement {
         const hat = state && state.hats ? state.hats[index] : null;
         value = hat && hat.direction === direction ? 1 : 0;
       }
-      row.querySelector('[data-live]').textContent = value ? 'pressed' : '0';
+      row.querySelector('[data-live]').textContent = value ? '1' : '0';
+      const set = row.querySelector('[data-action="set"]');
+      if (set) {
+        const armed = capture && capture.channel === channel;
+        set.textContent = armed ? 'Cancel' : 'Set';
+        set.disabled = !availableIds.has(id);
+      }
 
       if (capture && capture.channel === channel) {
         if (capture.source === 'button') {
@@ -329,6 +334,32 @@ export class WebHIDButtonMapper extends WebHIDElement {
       row.querySelector('[data-action="set"]').textContent = 'Set';
     }
     this._capture = null;
+  }
+
+  _clear(channel) {
+    if (this._capture && this._capture.channel === channel) this._cancelCapture();
+    const mapping = this.manager && this.manager.getMapping ? this.manager.getMapping() : { axes: {}, buttons: {} };
+    delete mapping.buttons[channel];
+    if (this.manager) this.manager.setMapping(mapping);
+    const row = this._row(channel);
+    if (row) {
+      row.querySelector('[data-field="device"]').value = '';
+      row.querySelector('[data-field="source"]').value = 'button';
+      row.querySelector('[data-field="index"]').value = '0';
+      row.querySelector('[data-field="direction"]').value = 'up';
+      row.classList.add('direction-hidden');
+    }
+    this.emit('webhid-change', { mapping });
+    this._updateLive();
+  }
+
+  _toggleCapture(channel) {
+    if (this._capture && this._capture.channel === channel) {
+      this._cancelCapture();
+      return;
+    }
+    if (this._capture) this._cancelCapture();
+    this._arm(channel);
   }
 
   refresh() {

@@ -1,6 +1,6 @@
 # Component integration guide
 
-Status: current for `webhid-wheel` 0.4.35 (2026-10-29).
+Status: current for `webhid-wheel` 0.4.36 (2026-10-29).
 
 This is the canonical integration contract for `<webhid-config-panel>` and the
 core package. It is written for application developers and for coding agents
@@ -218,6 +218,14 @@ panel.addEventListener('webhid-profile-change', event => {
   console.log('imported', event.detail.profile.profileName);
 });
 ```
+
+### Mapping controls
+
+Axis and button mapping rows start unbound with **Select device**. **Set** is
+disabled until the row is bound to a connected device. While listening, **Set**
+becomes **Cancel**; press it again to stop capture without changing the mapping.
+**Clear** removes the mapping and resets the row to **Select device**. Button
+telemetry is `0`/`1`; axis telemetry keeps decimal values.
 
 ## 9. Profiles and storage
 
