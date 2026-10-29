@@ -1,6 +1,6 @@
 # HID device mapping and capture
 
-Status: implemented on `feature/webhid-device-mapping` (2026-10-28).
+Status: mapping implemented on `feature/webhid-device-mapping` (2026-10-28); setup profiles and config elements added on `feature/core-ui-package` (2026-10-29).
 
 This document describes the current multi-device direction. The earlier
 `WebHIDRig` proposal has been dropped: there is no mandatory rig object and no
@@ -117,6 +117,25 @@ Mapping entries are plain data:
 }
 ```
 
+## Setup profiles
+
+The capture document above is raw input evidence and mapping metadata. Portable
+user-facing setup profiles (name, hardware match, steering/FFB settings and
+axis/button mappings) are a separate schema, specified in the
+[Package, setup profiles and Lapster integration plan](./lapster-integration-plan.md#7-profile-schema).
+
+Setup profiles:
+
+- match hardware by `vendorId` and `productId`, with an optional descriptor
+  signature for otherwise identical devices;
+- store all normalized settings in `0..1`;
+- round-trip app-owned values under `metadata`;
+- reconnect only to devices already granted through
+  `navigator.hid.getDevices()`; authorization still requires a user gesture.
+
+The existing `webhid-wheel:v1:*` keys in the demo are treated as legacy and
+migrated once into `webhid-wheel:v2:profiles`.
+
 ## Demo UI
 
 Top of page:
@@ -168,13 +187,17 @@ evidence for building known-device profiles.
 
 ## Storage
 
-localStorage stores metadata only:
+localStorage stores metadata only. The current demo uses these legacy keys:
 
 ```text
 webhid-wheel:v1:devices
 webhid-wheel:v1:mappings
 webhid-wheel:v1:settings
 ```
+
+The profile plan replaces the settings and mappings keys with a
+`webhid-wheel:v2:profiles` store document that records the active profile. See
+[Setup profiles](./lapster-integration-plan.md#7-profile-schema).
 
 Stored values:
 
@@ -251,20 +274,24 @@ Done:
 - `WebHIDDevice`
 - `mapChannels()`
 - device list, FFB badge, unified Connect
-- Wheel / Other axes / Buttons tabs
 - mapping capture with raw min/max/samples
-- metadata-only localStorage
+- metadata-only localStorage and versioned setup profiles
 - unified Copy/Download JSON
 - generic HID tests
+- `WheelManager`, calibration and setup-profile validation/matching
+- `<webhid-config-panel>` and the device/steering/axis/button elements
+- demo migrated to the UI package
 
 Next:
 
 - capture C5 base, C5 button hub and T3PM adapter on the rig
 - add known-device profiles and default mappings
 - integrate the sessions into Lapster
-- add a reusable config web component later, using the same APIs
+- add the unified gamepad/keyboard/touch mapper from the
+  [follow-up plan](./lapster-integration-plan.md#15-follow-up-unified-input-mapper)
 
 ## Related documents
 
+- [Package, setup profiles and Lapster integration plan](./lapster-integration-plan.md)
 - [Logitech, Thrustmaster and Fanatec FFB workarounds](./vendor-ffb-workarounds.md)
 - [PadForge wheel bridge for WebHID](./padforge-wheel-bridge.md)

@@ -11,25 +11,38 @@ Plug the wheelbase in over USB, click **Connect**, and pick it from the browser'
 - **Input** — steering, axes, buttons and POV hats from any HID wheel, gamepad, pedal set or button box, using a small profile registry with a generic **HID-descriptor fallback** for unknown devices.
 - **Force feedback** — constant force where the device supports it: built-in CAMMUS C5/C12, FFBeast and classic Logitech (G29 / Driving Force GT) profiles, plus automatic **USB-PID** detection for compliant devices. `constantFast()` reuses the running effect for high-rate updates. Includes force inversion and is safe by default (low strength, explicit stop).
 - **Mapping and capture** — combine multiple HID devices, map axes/buttons/hats to semantic channels, and copy/download raw device captures for known-device profiles.
+- **Setup profiles** — export and import named settings with hardware matching, validate/migrate profile documents, and reconnect to already-authorized devices.
+- **Web components** — drop-in `<webhid-config-panel>` with device picker, steering/FFB controls, axis and button mapping. Shadow DOM, CSS custom properties and app extension slots.
 
 ## Multi-device mapping
 
 The demo page connects multiple HID devices, shows wheel/FFB capability, and maps:
 
-- steering and FFB on the Wheel tab
-- throttle, brake, clutch and handbrake on the Other axes tab
-- fixed button actions and numbered buttons on the Buttons tab
+- steering, deadzone, saturation and FFB in the steering section
+- throttle, brake, clutch and handbrake in the axis section
+- fixed button actions and shifters in the button section
+- setup profiles in the profile bar
 
-Mappings, device metadata and wheel settings persist in localStorage. Raw capture data is kept in memory and included in the Copy/Download JSON export. `WebHIDWheel` remains the single-device wheel API; `WebHIDDevice` handles generic HID input. There is no mandatory rig object or shared namespace.
+Mappings, profile settings and metadata persist in localStorage. Raw capture data is kept in memory and included in the Copy/Download JSON export. `WebHIDWheel` remains the single-device wheel API; `WebHIDDevice` handles generic HID input. `WheelManager` composes one wheel plus optional generic sessions. There is no mandatory rig object or shared namespace.
+
+The library does not poll the Gamepad API or capture keyboard/touch input. Those remain app-level fallbacks; the planned unified mapper is described in the [integration plan](./docs/lapster-integration-plan.md#15-follow-up-unified-input-mapper).
 
 See [Device Config page and optional rigs](./docs/device-config-and-rigs.md) for the data model and [PadForge wheel bridge](./docs/padforge-wheel-bridge.md) for the Windows vendor-wheel workaround.
 
 ## Library
 
-Plain ESM, zero dependencies, DOM-free.
+Plain ESM, zero runtime dependencies. The core entry is DOM-free; the optional UI entry uses Web Components.
 
 ```sh
 npm i github:joegaffey/webhid-wheel
+npm run build      # when working from a source checkout
+```
+
+Dual entry points:
+
+```js
+import { WheelManager, SetupProfileManager } from 'webhid-wheel';
+import 'webhid-wheel/ui';        // registers <webhid-config-panel> and friends
 ```
 
 or import the module directly:
@@ -71,7 +84,52 @@ const channels = mapChannels(pedals.state, {
 });
 ```
 
-TypeScript typings ship in [`webhid-wheel.d.ts`](./webhid-wheel.d.ts).
+TypeScript typings ship for both entries: [`webhid-wheel.d.ts`](./webhid-wheel.d.ts) for the core and `webhid-wheel/ui` for the elements.
+
+### Manager and setup profiles
+
+```js
+import { WheelManager, SetupProfileManager } from 'webhid-wheel';
+
+const manager = new WheelManager({ maxRotation: 900 });
+manager.on('input', state => { /* state.wheel, state.devices, state.channels */ });
+
+await manager.connectWheel();            // user gesture
+await manager.addDevice('pedals');       // optional external session
+
+const profiles = new SetupProfileManager();
+const profile = manager.toSetup({ profileName: 'Pro GT Setup' });
+const text = profiles.serialize(profile);
+const reimported = profiles.parse(text);
+
+const devices = await navigator.hid.getDevices(); // already authorized only
+const match = profiles.match(reimported, devices);
+if (match.status === 'matched') await manager.connectWheel(match.device);
+```
+
+`requestDevice()` is never called by profile reconnection. Authorization always
+needs a user gesture.
+
+### Web components
+
+```html
+<webhid-config-panel storage-key="my-app:wheel-profiles">
+  <div slot="extra-settings"><!-- app-specific controls --></div>
+</webhid-config-panel>
+
+<script type="module">
+  import { WheelManager } from 'webhid-wheel';
+  import 'webhid-wheel/ui';
+
+  const panel = document.querySelector('webhid-config-panel');
+  panel.manager = new WheelManager();
+</script>
+```
+
+The panel is themed with `--wheel-bg-color`, `--wheel-fg-color`,
+`--wheel-muted-color`, `--wheel-accent`, `--wheel-border-color`,
+`--wheel-radius` and `--wheel-font`. The package and integration details are in
+the [package and Lapster integration plan](./docs/lapster-integration-plan.md).
 
 ### Custom wheel profiles
 
@@ -104,7 +162,7 @@ G29 and Driving Force GT use Logitech's classic force-feedback protocol. G920, G
 
 The T248 exposes force feedback on a vendor report that WebHID cannot send. On Windows, PadForge can expose a virtual HID-PID wheel and forward its force feedback to the T248. The same bridge pattern works for other native-FFB wheels PadForge can drive; see [PadForge wheel bridge for WebHID](./docs/padforge-wheel-bridge.md).
 
-Got an unsupported wheel? Open the demo, click **Gather diagnostics** (turn full-lock, press every button), then **Open issue** and paste the JSON.
+Got an unsupported wheel? Open the demo, connect it, turn full-lock and press every button, then use **Copy JSON** or **Download JSON** and attach the capture.
 
 ## Run locally
 
