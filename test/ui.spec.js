@@ -201,7 +201,9 @@ test('demo renders a connected wheel, input and a saved setup profile', async ({
   expect(stored.profiles[0].devices[0].hardware.vendorId).toBe(0x1234);
   expect(stored.profiles[0].settings.steering.maxRotation).toBe(900);
 
-  await page.locator('webhid-config-panel').locator('webhid-device-picker').locator('[data-action="copy"]').click();
+  const picker = page.locator('webhid-config-panel').locator('webhid-device-picker');
+  await picker.locator('summary').click();
+  await picker.locator('[data-action="copy"]').click();
   await expect(page.locator('#exportText')).toHaveValue(/Fake Test Wheel/);
 });
 
@@ -344,12 +346,12 @@ test('raw input follows the selected device and lives under the device list', as
     row.click();
     await new Promise(resolve => setTimeout(resolve, 30));
 
-    const raw = document.querySelector('[slot="device-extra"]');
+    const raw = document.querySelector('[slot="diagnostics"]');
     return {
       wheelId: wheelEntry.id,
       pedalId: pedalEntry.id,
       rawText: document.querySelector('#debug').textContent,
-      rawUnderDevices: !!picker.shadowRoot.querySelector('slot[name="extra"]'),
+      rawUnderDevices: !!picker.shadowRoot.querySelector('slot[name="diagnostics"]'),
       rawSlotChild: !!raw && !!raw.querySelector('#debug'),
       visualSlot: !!document.querySelector('#configPanel > [slot="steering-visual"] .wheel-svg'),
       ffbSlot: !!document.querySelector('#configPanel > [slot="steering-extra"] #force'),
@@ -363,6 +365,51 @@ test('raw input follows the selected device and lives under the device list', as
   expect(setup.visualSlot).toBe(true);
   expect(setup.ffbSlot).toBe(true);
   expect(setup.oldWheelCard).toBe(false);
+});
+
+test('device diagnostics are opt-in for embedded pickers', async ({ page }) => {
+  await page.goto('/');
+  const result = await page.evaluate(async () => {
+    const { WheelManager } = await import('/src/core/index.js');
+    const picker = document.createElement('webhid-device-picker');
+    picker.manager = new WheelManager();
+    document.body.append(picker);
+    await new Promise(resolve => requestAnimationFrame(resolve));
+
+    const read = element => ({
+      details: !!element.shadowRoot.querySelector('details.diagnostics'),
+      copy: !!element.shadowRoot.querySelector('[data-action="copy"]'),
+      exportButton: !!element.shadowRoot.querySelector('[data-action="export"]')
+    });
+
+    const before = read(picker);
+    picker.diagnostics = true;
+    await new Promise(resolve => requestAnimationFrame(resolve));
+    const after = read(picker);
+    picker.remove();
+
+    const defaultPanel = document.createElement('webhid-config-panel');
+    document.body.append(defaultPanel);
+    await new Promise(resolve => requestAnimationFrame(resolve));
+    const embeddedDefault = read(defaultPanel.shadowRoot.querySelector('webhid-device-picker'));
+    defaultPanel.remove();
+
+    const panel = document.querySelector('webhid-config-panel');
+    const demoPicker = panel.shadowRoot.querySelector('webhid-device-picker');
+    return {
+      before,
+      after,
+      embeddedDefault,
+      demo: read(demoPicker),
+      panelDiagnostics: panel.diagnostics
+    };
+  });
+
+  expect(result.before).toEqual({ details: false, copy: false, exportButton: false });
+  expect(result.after).toEqual({ details: true, copy: true, exportButton: true });
+  expect(result.embeddedDefault).toEqual({ details: false, copy: false, exportButton: false });
+  expect(result.demo).toEqual({ details: true, copy: true, exportButton: true });
+  expect(result.panelDiagnostics).toBe(true);
 });
 
 test('disconnected devices leave the active UI and raw input falls back', async ({ page }) => {
@@ -1609,4 +1656,32 @@ test('mapping rows align labels and live values on mobile', async ({ page }) => 
     };
   });
   expect(centerDelta(button.label, button.live)).toBeLessThan(3);
+});
+
+test('Set and Clear stay grouped and right aligned on mobile mappings', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto('/');
+  const panel = page.locator('webhid-config-panel');
+  const readActions = (mapperTag, selector) => panel.evaluate((element, [tag, rowSelector]) => {
+    const mapper = element.shadowRoot.querySelector(tag);
+    const row = mapper.shadowRoot.querySelector(rowSelector);
+    const set = row.querySelector('[data-action="set"]').getBoundingClientRect();
+    const clear = row.querySelector('[data-action="clear"]').getBoundingClientRect();
+    const box = row.getBoundingClientRect();
+    return {
+      gap: clear.left - set.right,
+      rightGap: box.right - clear.right
+    };
+  }, [mapperTag, selector]);
+
+  const axis = await readActions('webhid-axis-mapper', '[data-channel="throttle"]');
+  expect(axis.gap).toBeGreaterThanOrEqual(0);
+  expect(axis.gap).toBeLessThan(12);
+  expect(axis.rightGap).toBeLessThan(12);
+
+  await panel.getByRole('tab', { name: 'Buttons' }).click();
+  const button = await readActions('webhid-button-mapper', '[data-channel="reverse"]');
+  expect(button.gap).toBeGreaterThanOrEqual(0);
+  expect(button.gap).toBeLessThan(12);
+  expect(button.rightGap).toBeLessThan(12);
 });

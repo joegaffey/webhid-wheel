@@ -46,6 +46,7 @@ export declare class WebHIDDevicePicker extends HTMLElement {
   filters: HIDDeviceFilter[] | null;
   selectedId: string | null;
   profileDevices: SetupProfileDevice[];
+  diagnostics: boolean;
   refresh(): void;
 }
 
@@ -72,6 +73,7 @@ export declare class WebHIDConfigPanel extends HTMLElement {
   profiles: SetupProfileManager | null;
   storageKey: string | null;
   tabbed: boolean;
+  diagnostics: boolean;
   activeTab: 'wheel' | 'axes' | 'buttons';
   refresh(): void;
 }

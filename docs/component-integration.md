@@ -1,6 +1,6 @@
 # Component integration guide
 
-Status: current for `webhid-wheel` 0.4.33 (2026-10-29).
+Status: current for `webhid-wheel` 0.4.34 (2026-10-29).
 
 This is the canonical integration contract for `<webhid-config-panel>` and the
 core package. It is written for application developers and for coding agents
@@ -118,6 +118,7 @@ in production.
 | `profiles` | — | `SetupProfileManager` | Optional. Supply this to own profile persistence instead of `localStorage`. |
 | `storageKey` | `storage-key` | string | Defaults to `webhid-wheel:v3:profiles`. Set the property if changing it after connection; the attribute is read when the store is created. |
 | `tabbed` | `tabbed` | boolean | Opt-in tabs. Devices and setup profile stay visible; Wheel, Pedals & axes and Buttons are tabbed. |
+| `diagnostics` | `diagnostics` | boolean | Opt-in diagnostic UI. Adds a closed **Diagnostics** disclosure with Copy/Download actions and the `diagnostics` slot. Off by default for embedded panels. |
 | `activeTab` | — | `'wheel' \| 'axes' \| 'buttons'` | Property only. Setting it switches the visible tab; user tab changes also fire `webhid-tab-change`. |
 
 The child elements (`webhid-device-picker`, `webhid-steering-config`,
@@ -129,7 +130,8 @@ The child elements (`webhid-device-picker`, `webhid-steering-config`,
 | Slot | Placement | Typical use |
 | --- | --- | --- |
 | `header` | Panel heading area; replaces the default heading | App title or actions. Keep an accessible heading. |
-| `device-extra` | Inside the device picker, below its controls | Device diagnostics or capture status. |
+| `device-extra` | Inside the device picker, below its controls | Device status or extra app controls. |
+| `diagnostics` | Inside the optional Diagnostics disclosure | Raw input, capture data or other developer diagnostics. Only rendered when `diagnostics` is enabled. |
 | `steering-visual` | Top of the steering card | Wheel position visual. |
 | `steering-extra` | After force-feedback controls | App-specific force or telemetry controls. |
 | `extra-settings` | Wheel tab when `tabbed`; after the mapping sections otherwise | App feel settings such as road noise or rear lightening. |
@@ -149,6 +151,11 @@ If a slot is absent, the panel renders only library controls.
 
 All component events bubble and are composed, so they cross the shadow boundary.
 Treat `detail` as plain data except where an `Error` is explicitly noted.
+
+The device picker renders Copy/Download diagnostic actions only when
+`diagnostics` is enabled; the demo enables it and puts raw input in the
+`diagnostics` slot. Embedded consumer panels should leave it off unless they
+want that tooling visible.
 
 ### Device picker
 

@@ -11,6 +11,7 @@ export class WebHIDDevicePicker extends WebHIDElement {
     this._connectTimer = null;
     this._profileDevices = [];
     this._removing = new Set();
+    this._diagnostics = false;
   }
 
   set selectedId(value) {
@@ -29,6 +30,17 @@ export class WebHIDDevicePicker extends WebHIDElement {
 
   get profileDevices() {
     return this._profileDevices;
+  }
+
+  set diagnostics(value) {
+    const next = !!value;
+    if (this._diagnostics === next) return;
+    this._diagnostics = next;
+    if (this.isConnected) this.render();
+  }
+
+  get diagnostics() {
+    return this._diagnostics;
   }
 
   connectedCallback() {
@@ -99,10 +111,23 @@ export class WebHIDDevicePicker extends WebHIDElement {
       .list-item.selected { border-color: var(--wheel-accent, #38bdf8); box-shadow: inset 0 0 0 1px var(--wheel-accent, #38bdf8); }
       .list-item.offline { cursor: default; }
       slot[name="extra"] { display: block; }
+      .diagnostics { margin-top: 8px; padding-top: 6px; border-top: 1px solid var(--wheel-border-color, #2a303a); }
+      .diagnostics summary { color: var(--wheel-muted-color, #8f9bab); cursor: pointer; font-size: 10px; letter-spacing: .08em; text-transform: uppercase; }
+      .diagnostics .actions { margin-top: 6px; }
     `;
   }
 
   template() {
+    const diagnostics = this._diagnostics ? `
+      <details class="diagnostics">
+        <summary>Diagnostics</summary>
+        <slot name="diagnostics"></slot>
+        <div class="actions">
+          <button type="button" data-action="copy" title="Copy diagnostic JSON">Copy diagnostic JSON</button>
+          <button type="button" data-action="export" title="Download diagnostic JSON">Download JSON</button>
+        </div>
+      </details>
+    ` : '';
     return `
       <div class="panel">
         <div class="head">
@@ -112,10 +137,9 @@ export class WebHIDDevicePicker extends WebHIDElement {
         <div class="list" data-role="list"></div>
         <div class="actions">
           <button class="primary" type="button" data-action="connect">Add device</button>
-          <button type="button" data-action="copy" title="Copy diagnostic JSON">Copy</button>
-          <button type="button" data-action="export" title="Download diagnostic JSON">Export</button>
         </div>
         <slot name="extra"></slot>
+        ${diagnostics}
       </div>
     `;
   }
@@ -123,8 +147,10 @@ export class WebHIDDevicePicker extends WebHIDElement {
   bind() {
     const root = this.shadowRoot;
     root.querySelector('[data-action="connect"]').addEventListener('click', () => this._connect());
-    root.querySelector('[data-action="copy"]').addEventListener('click', () => this.emit('webhid-copy', { sessions: this._connectedSessions() }));
-    root.querySelector('[data-action="export"]').addEventListener('click', () => this.emit('webhid-export', { sessions: this._connectedSessions() }));
+    const copy = root.querySelector('[data-action="copy"]');
+    if (copy) copy.addEventListener('click', () => this.emit('webhid-copy', { sessions: this._connectedSessions() }));
+    const exportButton = root.querySelector('[data-action="export"]');
+    if (exportButton) exportButton.addEventListener('click', () => this.emit('webhid-export', { sessions: this._connectedSessions() }));
     root.querySelector('[data-role="list"]').addEventListener('click', (event) => {
       const action = event.target.closest('[data-action]');
       if (action) {
@@ -321,8 +347,8 @@ export class WebHIDDevicePicker extends WebHIDElement {
       ? 'WebHID is not available in this browser build'
       : (canRequest ? 'Add a WebHID device' : 'Device selection is not available in this browser build');
     connect.textContent = this._busy ? 'Adding…' : 'Add device';
-    copy.disabled = !sessions.length || this._busy;
-    exportButton.disabled = !sessions.length || this._busy;
+    if (copy) copy.disabled = !sessions.length || this._busy;
+    if (exportButton) exportButton.disabled = !sessions.length || this._busy;
 
     const rows = [];
     for (const device of this._profileDevices) {

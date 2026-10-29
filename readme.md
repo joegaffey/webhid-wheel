@@ -142,9 +142,11 @@ needs a user gesture.
 </script>
 ```
 
-`tabbed` is opt-in. It keeps Devices and Raw input visible, then shows Wheel,
-Pedals & axes and Buttons tabs while Setup profile stays below. Without
-`tabbed`, all sections render in one scroll.
+`tabbed` is opt-in. It keeps Devices and the optional Diagnostics disclosure
+visible, then shows Wheel, Pedals & axes and Buttons tabs while Setup profile
+stays below. Without `tabbed`, all sections render in one scroll. `diagnostics`
+is also opt-in: it adds a closed Diagnostics disclosure with Copy/Download
+actions and the `diagnostics` slot, which the demo uses for raw input.
 
 The panel is themed with `--wheel-bg-color`, `--wheel-fg-color`,
 `--wheel-muted-color`, `--wheel-accent`, `--wheel-border-color`,
@@ -180,20 +182,20 @@ WebHIDWheel.registerProfile({
 | Logitech Driving Force GT | steering, buttons | constant force (classic Logitech) | No |
 | CAMMUS C5 | steering, buttons, axes | constant force (USB-PID) | **Yes** (Windows 11, Chrome) |
 | CAMMUS C12 | steering, buttons, axes | constant force (USB-PID) | No |
-| FFBeast | steering | constant force | **Yes** |
+| FFBeast | steering | constant force | **Yes** (Windows 11, Chrome) |
 | Any standard-descriptor HID wheel | steering/axes/buttons (generic) | — | No |
 | Any USB-PID FFB device | — | constant force (auto-detected) | No |
 
-Only **CAMMUS C5** and **FFBeast** have been verified on hardware. The C5 test
-was on Windows 11 with Chrome. Other rows are implemented or expected but have
-not been hardware-verified. If force pulls the wrong way, tick **Invert Force**
+Only **CAMMUS C5** and **FFBeast** have been verified on hardware, both on
+Windows 11 with Chrome. Other rows are implemented or expected but have not
+been hardware-verified. If force pulls the wrong way, tick **Invert Force**
 in the demo or set `ffbInvert: true`.
 
 G29 and Driving Force GT use Logitech's classic force-feedback protocol. G920, G923 Xbox and Fanatec wheels still need separate profiles; see [Logitech, Thrustmaster and Fanatec FFB workarounds](./docs/vendor-ffb-workarounds.md).
 
 The T248 exposes force feedback on a vendor report that WebHID cannot send. On Windows, PadForge can expose a virtual HID-PID wheel and forward its force feedback to the T248. The same bridge pattern works for other native-FFB wheels PadForge can drive; see [PadForge wheel bridge for WebHID](./docs/padforge-wheel-bridge.md).
 
-Got an unsupported wheel? Open the demo, add it, turn full-lock and press every button, then use **Copy** or **Export** in the device panel and attach the capture.
+Got an unsupported wheel? Open the demo, add it, turn full-lock and press every button, then open **Diagnostics** in the device panel and use **Copy diagnostic JSON** or **Download JSON** to attach the capture.
 
 ## Run locally
 

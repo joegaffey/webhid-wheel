@@ -27,11 +27,15 @@ export class WebHIDConfigPanel extends WebHIDElement {
   }
 
   static get observedAttributes() {
-    return ['tabbed'];
+    return ['tabbed', 'diagnostics'];
   }
 
   attributeChangedCallback(name, oldValue, newValue) {
-    if (name === 'tabbed' && oldValue !== newValue && this.isConnected) this.render();
+    if (name === 'tabbed' && oldValue !== newValue && this.isConnected) {
+      this.render();
+    } else if (name === 'diagnostics' && oldValue !== newValue && this.isConnected) {
+      this._syncChildren();
+    }
   }
 
   get tabbed() {
@@ -41,6 +45,15 @@ export class WebHIDConfigPanel extends WebHIDElement {
   set tabbed(value) {
     if (value) this.setAttribute('tabbed', '');
     else this.removeAttribute('tabbed');
+  }
+
+  get diagnostics() {
+    return this.hasAttribute('diagnostics');
+  }
+
+  set diagnostics(value) {
+    if (value) this.setAttribute('diagnostics', '');
+    else this.removeAttribute('diagnostics');
   }
 
   get activeTab() {
@@ -130,6 +143,8 @@ export class WebHIDConfigPanel extends WebHIDElement {
       child.manager = this._manager;
       child.profiles = this._profiles;
     }
+    const picker = this.shadowRoot.querySelector('webhid-device-picker');
+    if (picker) picker.diagnostics = this.diagnostics;
   }
 
   _bindManager() {
@@ -185,6 +200,7 @@ export class WebHIDConfigPanel extends WebHIDElement {
     const device = `
       <webhid-device-picker>
         <slot name="device-extra" slot="extra"></slot>
+        <slot name="diagnostics" slot="diagnostics"></slot>
       </webhid-device-picker>
     `;
     const steering = `

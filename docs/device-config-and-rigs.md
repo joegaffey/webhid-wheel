@@ -1,7 +1,7 @@
 # HID device mapping and capture
 
 Status: mapping, setup profiles and config elements implemented in
-`webhid-wheel` 0.4.33 (2026-10-29). See the
+`webhid-wheel` 0.4.34 (2026-10-29). See the
 [component integration guide](./component-integration.md) for the consumer
 contract.
 
@@ -156,11 +156,11 @@ The demo uses `<webhid-config-panel>` and its sub-elements:
 - throttle, brake, clutch and handbrake mapping in the Pedals & axes tab
 - fixed button/shifter actions in the Buttons tab
 - setup profile import/export/delete below the tabs
-- Copy / Export diagnostic JSON
+- Copy / Export diagnostic JSON under the opt-in Diagnostics disclosure
 
 Devices are listed by name and session ID. There is no synthetic `wheel` role.
-Raw input data is shown in a raw-input panel and included in the export. It is
-not stored in localStorage.
+Raw input data is shown in the Diagnostics disclosure and included in the
+export. It is not stored in localStorage.
 
 ## Capture flow
 

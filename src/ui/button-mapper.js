@@ -100,6 +100,7 @@ export class WebHIDButtonMapper extends WebHIDElement {
       .live { font-variant-numeric: tabular-nums; color: var(--wheel-muted-color, #8f9bab); min-width: 38px; text-align: right; }
       .mapping.armed { outline: 1px solid var(--wheel-accent, #38bdf8); outline-offset: 2px; }
       .mapping .actions { align-items: center; justify-content: flex-end; }
+      .mapping .buttons { display: flex; gap: 6px; }
       @media (max-width: 560px) {
         .mapping, .mapping.direction-hidden {
           grid-template-columns: minmax(0, 1fr) 70px 70px;
@@ -119,8 +120,7 @@ export class WebHIDButtonMapper extends WebHIDElement {
         .mapping > select[data-field="direction"] { grid-column: 3; grid-row: 3; min-width: 0; }
         .mapping.direction-hidden > select[data-field="source"] { grid-column: 1 / 3; }
         .mapping.direction-hidden > input[data-field="index"] { grid-column: 3; }
-        .mapping .actions [data-action="set"] { grid-column: 1; grid-row: 4; justify-self: start; }
-        .mapping .actions [data-action="clear"] { grid-column: 2; grid-row: 4; justify-self: start; }
+        .mapping .actions .buttons { grid-column: 2 / -1; grid-row: 4; justify-self: end; }
       }
     `;
   }
@@ -169,8 +169,10 @@ export class WebHIDButtonMapper extends WebHIDElement {
           <select data-field="direction"${disabled}>${HAT_DIRECTIONS.map(dir => `<option value="${dir}"${dir === direction ? ' selected' : ''}>${dir}</option>`).join('')}</select>
           <div class="actions">
             <span class="live" data-live="0.00">0.00</span>
-            <button type="button" data-action="set"${disabled}>Set</button>
-            <button type="button" data-action="clear"${disabled}>Clear</button>
+            <div class="buttons">
+              <button type="button" data-action="set"${disabled}>Set</button>
+              <button type="button" data-action="clear"${disabled}>Clear</button>
+            </div>
           </div>
         </div>
       `;

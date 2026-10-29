@@ -87,6 +87,7 @@ export class WebHIDAxisMapper extends WebHIDElement {
       .live { font-variant-numeric: tabular-nums; color: var(--wheel-muted-color, #8f9bab); min-width: 40px; text-align: right; }
       .mapping.armed { outline: 1px solid var(--wheel-accent, #38bdf8); outline-offset: 2px; }
       .mapping .actions { align-items: center; justify-content: flex-end; }
+      .mapping .buttons { display: flex; gap: 6px; }
       .mapping .check span { display: none; }
       @media (max-width: 560px) {
         .mapping {
@@ -105,8 +106,7 @@ export class WebHIDAxisMapper extends WebHIDElement {
         .mapping > input[data-field="index"] { grid-column: 3; grid-row: 2; width: 100%; }
         .mapping > .check { grid-column: 1; grid-row: 3; margin: 0; }
         .mapping > .check span { display: inline; }
-        .mapping .actions [data-action="set"] { grid-column: 2; grid-row: 3; justify-self: start; }
-        .mapping .actions [data-action="clear"] { grid-column: 3; grid-row: 3; justify-self: end; }
+        .mapping .actions .buttons { grid-column: 2 / -1; grid-row: 3; justify-self: end; }
       }
     `;
   }
@@ -150,8 +150,10 @@ export class WebHIDAxisMapper extends WebHIDElement {
           <label class="check" title="Invert"><input data-field="invert" type="checkbox"${invert ? ' checked' : ''}${disabled}><span>Invert</span></label>
           <div class="actions">
             <span class="live" data-live="0.00">0.00</span>
-            <button type="button" data-action="set"${disabled}>Set</button>
-            <button type="button" data-action="clear"${disabled}>Clear</button>
+            <div class="buttons">
+              <button type="button" data-action="set"${disabled}>Set</button>
+              <button type="button" data-action="clear"${disabled}>Clear</button>
+            </div>
           </div>
         </div>
       `;
