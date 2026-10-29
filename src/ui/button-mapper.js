@@ -1,0 +1,307 @@
+import { WebHIDElement } from './base.js';
+
+export const BUTTON_ACTIONS = [
+  ['reverse', 'Reverse'],
+  ['neutral', 'Neutral'],
+  ['gear1', 'Gear 1'],
+  ['gear2', 'Gear 2'],
+  ['gear3', 'Gear 3'],
+  ['gear4', 'Gear 4'],
+  ['gear5', 'Gear 5'],
+  ['gear6', 'Gear 6'],
+  ['gear7', 'Gear 7'],
+  ['gear8', 'Gear 8'],
+  ['gearUp', 'Shift up'],
+  ['gearDown', 'Shift down'],
+  ['handbrake', 'Handbrake']
+];
+
+const HAT_DIRECTIONS = ['up', 'up-right', 'right', 'down-right', 'down', 'down-left', 'left', 'up-left'];
+
+export class WebHIDButtonMapper extends WebHIDElement {
+  constructor() {
+    super();
+    this._boundManager = null;
+    this._liveQueued = false;
+    this._capture = null;
+    this._mappingOverride = null;
+  }
+
+  set mapping(value) {
+    this._mappingOverride = value || null;
+    if (this.isConnected) this.render();
+  }
+
+  get mapping() {
+    return this._mappingOverride;
+  }
+
+  connectedCallback() {
+    super.connectedCallback();
+    this._bindManager();
+  }
+
+  disconnectedCallback() {
+    this._unbindManager();
+  }
+
+  set manager(value) {
+    if (this._manager === (value || null)) return;
+    this._unbindManager();
+    this._manager = value || null;
+    if (this.isConnected) this.render();
+  }
+
+  get manager() {
+    return this._manager;
+  }
+
+  _unbindManager() {
+    if (!this._boundManager) return;
+    if (typeof this._boundManager.off === 'function') {
+      this._boundManager.off('input', this._managerHandler);
+      this._boundManager.off('connect', this._rolesHandler);
+      this._boundManager.off('disconnect', this._rolesHandler);
+      this._boundManager.off('setup-applied', this._managerHandler);
+    }
+    this._boundManager = null;
+  }
+
+  _bindManager() {
+    if (!this._manager || this._boundManager === this._manager) return;
+    this._unbindManager();
+    if (typeof this._manager.on !== 'function') return;
+    this._managerHandler = () => this.scheduleLive();
+    this._rolesHandler = () => this.render();
+    this._manager.on('input', this._managerHandler);
+    this._manager.on('connect', this._rolesHandler);
+    this._manager.on('disconnect', this._rolesHandler);
+    this._manager.on('setup-applied', this._managerHandler);
+    this._boundManager = this._manager;
+  }
+
+  scheduleLive() {
+    if (this._liveQueued) return;
+    this._liveQueued = true;
+    const run = () => {
+      this._liveQueued = false;
+      this._updateLive();
+    };
+    if (typeof requestAnimationFrame === 'function') requestAnimationFrame(run);
+    else setTimeout(run, 16);
+  }
+
+  css() {
+    return `
+      .mapping { display: grid; grid-template-columns: 76px minmax(80px, 1fr) 78px 54px 70px auto; gap: 5px; align-items: center; margin: 4px 0; }
+      .mapping input[type="number"] { width: 100%; }
+      .mapping.direction-hidden { grid-template-columns: 76px minmax(80px, 1fr) 78px 54px auto; }
+      .mapping.direction-hidden select[data-field="direction"] { display: none; }
+      .live { font-variant-numeric: tabular-nums; color: var(--wheel-muted-color, #8f9bab); min-width: 38px; text-align: right; }
+      .mapping.armed { outline: 1px solid var(--wheel-accent, #38bdf8); outline-offset: 2px; }
+      .mapping .actions { justify-content: flex-end; }
+      @media (max-width: 560px) {
+        .mapping, .mapping.direction-hidden { grid-template-columns: minmax(56px, 1fr) 74px 54px; }
+        .mapping > label { grid-column: 1 / -1; }
+        .mapping .actions { grid-column: 1 / -1; justify-content: flex-start; }
+      }
+    `;
+  }
+
+  _roles() {
+    const roles = ['wheel'];
+    if (this.manager && this.manager.sessions) {
+      for (const role of this.manager.sessions.keys()) {
+        if (role !== 'wheel' && !roles.includes(role)) roles.push(role);
+      }
+    }
+    return roles;
+  }
+
+  template() {
+    const mapping = this.manager && typeof this.manager.getMapping === 'function'
+      ? this.manager.getMapping().buttons
+      : (this._mappingOverride && (this._mappingOverride.buttons || this._mappingOverride) || {});
+    const roles = this._roles();
+    const rows = BUTTON_ACTIONS.map(([channel, label]) => {
+      const entry = mapping[channel] || {};
+      const device = entry.device || 'wheel';
+      const source = entry.source === 'hat' ? 'hat' : 'button';
+      const index = Number.isInteger(entry.index) ? entry.index : 0;
+      const direction = entry.direction || 'up';
+      return `
+        <div class="mapping${source === 'hat' ? '' : ' direction-hidden'}" data-channel="${channel}">
+          <label>${label}</label>
+          <select data-field="device">${roles.map(role => `<option value="${escapeHtml(role)}"${role === device ? ' selected' : ''}>${escapeHtml(role)}</option>`).join('')}</select>
+          <select data-field="source">
+            <option value="button"${source === 'button' ? ' selected' : ''}>button</option>
+            <option value="hat"${source === 'hat' ? ' selected' : ''}>hat</option>
+          </select>
+          <input data-field="index" type="number" min="0" step="1" value="${index}" aria-label="${label} index">
+          <select data-field="direction">${HAT_DIRECTIONS.map(dir => `<option value="${dir}"${dir === direction ? ' selected' : ''}>${dir}</option>`).join('')}</select>
+          <div class="actions">
+            <span class="live" data-live="0.00">0.00</span>
+            <button type="button" data-action="set">Set</button>
+            <button type="button" data-action="clear">Clear</button>
+          </div>
+        </div>
+      `;
+    }).join('');
+    return `
+      <div class="panel">
+        <div class="row"><h3>Buttons and shifters</h3><span class="muted">Set, then press the input</span></div>
+        <div data-role="rows">${rows}</div>
+      </div>
+    `;
+  }
+
+  bind() {
+    for (const row of this.shadowRoot.querySelectorAll('[data-channel]')) {
+      for (const field of row.querySelectorAll('[data-field]')) {
+        field.addEventListener('change', () => {
+          if (field.dataset.field === 'source') {
+            row.classList.toggle('direction-hidden', field.value !== 'hat');
+          }
+          this._commit();
+        });
+      }
+      row.querySelector('[data-action="set"]').addEventListener('click', () => this._arm(row.dataset.channel));
+      row.querySelector('[data-action="clear"]').addEventListener('click', () => {
+        const mapping = this.manager && this.manager.getMapping ? this.manager.getMapping() : { axes: {}, buttons: {} };
+        delete mapping.buttons[row.dataset.channel];
+        if (this.manager) this.manager.setMapping(mapping);
+        this.emit('webhid-change', { mapping });
+        this._updateLive();
+      });
+    }
+  }
+
+  _row(channel) {
+    return this.shadowRoot.querySelector(`[data-channel="${channel}"]`);
+  }
+
+  _commit() {
+    if (!this.manager || typeof this.manager.setMapping !== 'function') return;
+    const mapping = this.manager.getMapping();
+    for (const [channel] of BUTTON_ACTIONS) {
+      const row = this._row(channel);
+      if (!row) continue;
+      const source = row.querySelector('[data-field="source"]').value;
+      const entry = {
+        device: row.querySelector('[data-field="device"]').value,
+        source,
+        index: Math.max(0, Math.floor(Number(row.querySelector('[data-field="index"]').value) || 0))
+      };
+      if (source === 'hat') entry.direction = row.querySelector('[data-field="direction"]').value;
+      mapping.buttons[channel] = entry;
+    }
+    this.manager.setMapping(mapping);
+    this._updateLive();
+    this.emit('webhid-change', { mapping });
+  }
+
+  _stateFor(role) {
+    if (!this.manager) return null;
+    const state = this.manager.state;
+    if (role === 'wheel') return state.wheel;
+    return state.devices && state.devices[role] ? state.devices[role] : null;
+  }
+
+  _arm(channel) {
+    const row = this._row(channel);
+    if (!row) return;
+    const device = row.querySelector('[data-field="device"]').value;
+    const state = this._stateFor(device);
+    this._capture = {
+      channel,
+      device,
+      source: row.querySelector('[data-field="source"]').value,
+      baselineButtons: state && state.buttons ? state.buttons.slice() : [],
+      baselineHats: state && state.hats ? state.hats.map(hat => ({ ...hat })) : [],
+      started: Date.now()
+    };
+    row.classList.add('armed');
+    row.querySelector('[data-action="set"]').textContent = 'Listening…';
+  }
+
+  _updateLive() {
+    if (!this.shadowRoot) return;
+    const capture = this._capture;
+    if (capture && Date.now() - capture.started > 10000) this._cancelCapture();
+
+    for (const [channel] of BUTTON_ACTIONS) {
+      const row = this._row(channel);
+      if (!row) continue;
+      const role = row.querySelector('[data-field="device"]').value;
+      const source = row.querySelector('[data-field="source"]').value;
+      const index = Math.max(0, Math.floor(Number(row.querySelector('[data-field="index"]').value) || 0));
+      const direction = row.querySelector('[data-field="direction"]').value;
+      const state = this._stateFor(role);
+      let value = 0;
+      if (source === 'button') {
+        value = state && state.buttons && state.buttons[index] ? 1 : 0;
+      } else {
+        const hat = state && state.hats ? state.hats[index] : null;
+        value = hat && hat.direction === direction ? 1 : 0;
+      }
+      row.querySelector('[data-live]').textContent = value ? 'pressed' : '0';
+
+      if (capture && capture.channel === channel) {
+        if (capture.source === 'button') {
+          const buttons = state && state.buttons ? state.buttons : [];
+          let best = -1;
+          for (let i = 0; i < buttons.length; i += 1) {
+            if (buttons[i] && !capture.baselineButtons[i]) { best = i; break; }
+          }
+          if (best >= 0) {
+            row.querySelector('[data-field="index"]').value = String(best);
+            this._cancelCapture();
+            this._commit();
+            this.emit('webhid-capture', { channel, device: role, source: 'button', index: best });
+          }
+        } else {
+          const hats = state && state.hats ? state.hats : [];
+          let best = -1;
+          let bestDirection = null;
+          for (let i = 0; i < hats.length; i += 1) {
+            const before = capture.baselineHats[i] || {};
+            if (hats[i] && hats[i].direction && hats[i].direction !== before.direction) {
+              best = i;
+              bestDirection = hats[i].direction;
+              break;
+            }
+          }
+          if (best >= 0) {
+            row.querySelector('[data-field="index"]').value = String(best);
+            row.querySelector('[data-field="direction"]').value = bestDirection;
+            this._cancelCapture();
+            this._commit();
+            this.emit('webhid-capture', { channel, device: role, source: 'hat', index: best, direction: bestDirection });
+          }
+        }
+      }
+    }
+  }
+
+  _cancelCapture() {
+    if (!this._capture) return;
+    const row = this._row(this._capture.channel);
+    if (row) {
+      row.classList.remove('armed');
+      row.querySelector('[data-action="set"]').textContent = 'Set';
+    }
+    this._capture = null;
+  }
+
+  refresh() {
+    if (!this.shadowRoot || !this.shadowRoot.querySelector('[data-role="rows"]')) return;
+    this._bindManager();
+    this._updateLive();
+  }
+}
+
+function escapeHtml(value) {
+  return String(value).replace(/[&<>"']/g, ch => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+  }[ch]));
+}

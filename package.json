@@ -1,24 +1,44 @@
 {
   "name": "webhid-wheel",
-  "version": "0.1.0",
-  "description": "Read USB HID steering wheels in the browser over WebHID — steering, buttons, pedals and force feedback. ESM library + demo.",
+  "version": "0.2.0",
+  "description": "Read USB HID steering wheels in the browser over WebHID \u2014 steering, buttons, pedals and force feedback. ESM library + UI components + demo.",
   "type": "module",
-  "main": "webhid-wheel.js",
-  "module": "webhid-wheel.js",
-  "types": "webhid-wheel.d.ts",
+  "main": "./dist/core/index.js",
+  "module": "./dist/core/index.js",
+  "types": "./dist/core/index.d.ts",
   "exports": {
     ".": {
+      "types": "./dist/core/index.d.ts",
+      "import": "./dist/core/index.js",
+      "default": "./dist/core/index.js"
+    },
+    "./ui": {
+      "types": "./dist/ui/index.d.ts",
+      "import": "./dist/ui/index.js",
+      "default": "./dist/ui/index.js"
+    },
+    "./webhid-wheel.js": {
       "types": "./webhid-wheel.d.ts",
       "import": "./webhid-wheel.js",
       "default": "./webhid-wheel.js"
-    }
+    },
+    "./package.json": "./package.json"
   },
+  "sideEffects": [
+    "./dist/ui/index.js"
+  ],
   "files": [
+    "dist",
+    "src",
     "webhid-wheel.js",
-    "webhid-wheel.d.ts"
+    "webhid-wheel.d.ts",
+    "readme.md"
   ],
   "scripts": {
-    "test": "node --test"
+    "build": "node scripts/build.js",
+    "test": "node --test test/*.test.js",
+    "test:ui": "playwright test",
+    "prepare": "npm run build"
   },
   "keywords": [
     "webhid",
@@ -28,7 +48,11 @@
     "gamepad",
     "force-feedback",
     "ffb",
-    "browser"
+    "browser",
+    "web-components"
   ],
-  "license": "MIT"
+  "license": "MIT",
+  "devDependencies": {
+    "@playwright/test": "1.64.1"
+  }
 }
