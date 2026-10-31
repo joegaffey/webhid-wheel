@@ -9,6 +9,80 @@ const stateText = $('stateText');
 const statsEl = $('stats');
 const interfacesEl = $('interfaces');
 const statusEl = $('status');
+const tooltipEl = $('tooltip');
+let tooltipTarget = null;
+
+function positionTooltip() {
+  if (!tooltipTarget) return;
+  const rect = tooltipTarget.getBoundingClientRect();
+  const tip = tooltipEl.getBoundingClientRect();
+  let left = rect.left + rect.width / 2 - tip.width / 2;
+  let top = rect.bottom + 8;
+  if (top + tip.height > window.innerHeight - 8) top = rect.top - tip.height - 8;
+  left = Math.max(8, Math.min(window.innerWidth - tip.width - 8, left));
+  top = Math.max(8, top);
+  tooltipEl.style.left = `${left}px`;
+  tooltipEl.style.top = `${top}px`;
+}
+
+function helpTargetFor(node) {
+  if (!node || !node.closest) return null;
+  const explicit = node.closest('[data-help]');
+  if (explicit) return explicit;
+  const label = node.closest('label');
+  if (label && label.control && label.control.hasAttribute('data-help')) return label.control;
+  return null;
+}
+
+function showTooltip(target) {
+  const text = target && target.getAttribute('data-help');
+  if (!text) return;
+  if (tooltipTarget && tooltipTarget !== target) tooltipTarget.removeAttribute('aria-describedby');
+  tooltipTarget = target;
+  tooltipEl.textContent = text;
+  tooltipEl.classList.add('show');
+  target.setAttribute('aria-describedby', 'tooltip');
+  positionTooltip();
+}
+
+function hideTooltip() {
+  if (!tooltipTarget) return;
+  tooltipTarget.removeAttribute('aria-describedby');
+  tooltipTarget = null;
+  tooltipEl.classList.remove('show');
+}
+
+document.addEventListener('pointerover', event => {
+  const target = helpTargetFor(event.target);
+  if (target) showTooltip(target);
+  else hideTooltip();
+});
+
+document.addEventListener('pointerout', event => {
+  if (!tooltipTarget) return;
+  const target = helpTargetFor(event.target);
+  if (!target || target !== tooltipTarget) return;
+  const next = event.relatedTarget;
+  if (next && tooltipTarget.contains(next)) return;
+  hideTooltip();
+});
+
+document.addEventListener('focusin', event => {
+  const target = helpTargetFor(event.target);
+  if (target) showTooltip(target);
+});
+
+document.addEventListener('focusout', event => {
+  const target = helpTargetFor(event.target);
+  if (target && target === tooltipTarget) hideTooltip();
+});
+
+window.addEventListener('scroll', () => {
+  if (tooltipTarget) positionTooltip();
+}, true);
+window.addEventListener('resize', () => {
+  if (tooltipTarget) positionTooltip();
+});
 
 const checkboxIds = [
   'invert',

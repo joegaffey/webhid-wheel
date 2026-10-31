@@ -97,6 +97,33 @@
       }
       .hint { color: var(--muted); font-size: .78rem; margin: 4px 0; }
       .presets { display: flex; flex-wrap: wrap; gap: 6px; }
+      .helpPanel {
+        max-width: 1280px; margin: 0 auto 14px; padding: 0 14px;
+        background: linear-gradient(180deg, #131b2a, #10151f);
+        border: 1px solid rgba(91, 140, 255, .28); border-radius: 14px;
+      }
+      .helpPanel summary {
+        cursor: pointer; padding: 12px 0; font-weight: 650; color: var(--text);
+      }
+      .helpPanel summary::marker { color: var(--accent); }
+      .helpBody {
+        display: grid; grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 14px; border-top: 1px solid var(--border); padding: 10px 0 12px;
+      }
+      .helpBody h3 { margin: 0 0 4px; font-size: .7rem; text-transform: uppercase; letter-spacing: .1em; color: var(--accent); }
+      .helpBody p, .helpBody li { margin: 3px 0; color: var(--muted); font-size: .8rem; }
+      .helpBody ul { margin: 4px 0 0 17px; padding: 0; }
+      .helpBody code { color: #c7d6ff; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+      .helpBody .warn { color: var(--warn); }
+      @media (max-width: 900px) { .helpBody { grid-template-columns: 1fr; } }
+      #tooltip {
+        position: fixed; z-index: 100; max-width: 320px; padding: 7px 9px;
+        border: 1px solid rgba(91, 140, 255, .45); border-radius: 8px;
+        background: #0b111c; color: var(--text); box-shadow: 0 8px 24px rgba(0, 0, 0, .45);
+        font-size: .76rem; line-height: 1.35; pointer-events: none;
+        opacity: 0; transform: translateY(4px); transition: opacity .1s, transform .1s;
+      }
+      #tooltip.show { opacity: 1; transform: translateY(0); }
       footer { margin-top: 18px; text-align: center; color: var(--muted); font-size: .76rem; }
       a { color: #8ab4ff; }
     </style>
@@ -113,13 +140,42 @@
         </p>
       </header>
 
+      <details class="helpPanel" open>
+        <summary>How to use this test bench</summary>
+        <div class="helpBody">
+          <div>
+            <h3>1. Connect safely</h3>
+            <p>Close Logitech G HUB first; it can claim the wheel. Click <b>Connect Logitech wheel</b>, choose the wheel in the browser picker, then <b>Initialize HID++</b>.</p>
+            <p>For split-interface wheels (RS50, G Pro) the page opens the joystick and HID++ interfaces. For G923 the input and HID++ collections share one interface.</p>
+            <p class="warn">Start with a low force and strength. Keep the wheel free of cables, hands and objects while streaming.</p>
+          </div>
+          <div>
+            <h3>2. Compare strategies</h3>
+            <p>Use the presets to reproduce known paths, or set the flags manually. The key question is whether the effect keeps playing while force is updated.</p>
+            <ul>
+              <li><code>autostart allocate</code> starts the effect when the slot is created. RS50 and G923 need this.</li>
+              <li><code>autostart update</code> restarts the effect on every update. This is the old Lapster behaviour and may prevent sustained force.</li>
+              <li><code>START=0</code> updates modify the existing effect without restarting it. This is the current RS50 strategy.</li>
+              <li><code>autostart resume</code> plus <code>play after resume</code> restarts a stopped effect.</li>
+              <li><code>recreate on resume</code> destroys and reallocates the slot if restarting fails.</li>
+            </ul>
+          </div>
+          <div>
+            <h3>3. Read the evidence</h3>
+            <p>The state panel shows the discovered feature index, slot count, autocenter slot, active slot, playing flag, level, queue depth and frame counters. The log shows every HID++ request/response in hex.</p>
+            <p>Streams stop automatically after 10 seconds. The page also stops the effect when it is hidden or unloaded.</p>
+            <p>Copy the state and the HID++ log when reporting a result. See <a href="https://github.com/joegaffey/webhid-wheel/blob/feature/logitech-g-pro/docs/vendor-ffb-workarounds.md">the FFB workaround notes</a> for protocol details.</p>
+          </div>
+        </div>
+      </details>
+
       <div class="layout">
         <section class="panel">
           <h2>Device</h2>
           <div class="row">
-            <button id="connect" class="primary">Connect Logitech wheel</button>
-            <button id="initialize" disabled>Initialize HID++</button>
-            <button id="disconnect" disabled class="danger">Disconnect</button>
+            <button id="connect" class="primary" data-help="Open the browser HID picker. Close G HUB first. Select the Logitech wheel; this page then opens its joystick and HID++ interfaces.">Connect Logitech wheel</button>
+            <button id="initialize" disabled data-help="Run HID++ discovery and setup: protocol version, feature 0x8123, slot count, resetAll, optional autocenter suppression and aperture.">Initialize HID++</button>
+            <button id="disconnect" disabled class="danger" data-help="Stop the effect, destroy the active slot, close the HID++ interface and close the input interface.">Disconnect</button>
           </div>
           <div class="status" id="status">
             <span class="pill">not connected</span>
@@ -134,42 +190,43 @@
           <div class="control">
             <label for="force">Force</label>
             <span class="value" id="forceValue">0.00</span>
-            <input id="force" type="range" min="-1" max="1" step="0.01" value="0" />
+            <input id="force" type="range" min="-1" max="1" step="0.01" value="0" data-help="Base force from -1 to 1. Positive is normally clockwise/right. Some wheels, including the G923, use the opposite sign.">
           </div>
           <div class="control">
             <label for="strength">Strength</label>
             <span class="value" id="strengthValue">0.50</span>
-            <input id="strength" type="range" min="0" max="1" step="0.01" value="0.5" />
+            <input id="strength" type="range" min="0" max="1" step="0.01" value="0.5" data-help="Multiplier applied to the force before it is converted to the signed 16-bit HID++ level.">
           </div>
           <div class="row">
-            <label><input id="invert" type="checkbox" /> Invert force</label>
-            <label><input id="modulate" type="checkbox" checked /> Modulate stream</label>
+            <label><input id="invert" type="checkbox" data-help="Negate the force. Enable it if the wheel pulls the wrong way. The G923 preset turns this on."> Invert force</label>
+            <label><input id="modulate" type="checkbox" checked data-help="During streaming, add a slow +/-0.15 sine sweep so refreshes are visible even if the base force is constant."> Modulate stream</label>
           </div>
 
           <h2 style="margin-top:14px">Driver strategy</h2>
           <div class="flags">
-            <label><input id="autostartAllocate" type="checkbox" checked /> autostart allocate</label>
-            <label><input id="autostartUpdate" type="checkbox" /> autostart update</label>
-            <label><input id="autostartResume" type="checkbox" checked /> autostart resume</label>
-            <label><input id="playAfterAllocate" type="checkbox" checked /> play after allocate</label>
-            <label><input id="playAfterUpdate" type="checkbox" /> play after update</label>
-            <label><input id="playAfterResume" type="checkbox" checked /> play after resume</label>
-            <label><input id="recreateOnResume" type="checkbox" /> recreate on resume</label>
-            <label><input id="destroyOnStop" type="checkbox" /> destroy on stop</label>
-            <label><input id="disableAutocenter" type="checkbox" checked /> disable autocenter</label>
-            <label><input id="resetAll" type="checkbox" checked /> reset all on init</label>
-            <label><input id="protocolVersion" type="checkbox" checked /> version handshake</label>
-            <label><input id="setAperture" type="checkbox" /> set aperture</label>
+            <label><input id="autostartAllocate" type="checkbox" checked data-help="Set EFFECT_AUTOSTART on the first downloadEffect. RS50 and G923 need this to start producing force."> autostart allocate</label>
+            <label><input id="autostartUpdate" type="checkbox" data-help="Set EFFECT_AUTOSTART on every update. This is the old Lapster path and can restart the effect instead of sustaining it."> autostart update</label>
+            <label><input id="autostartResume" type="checkbox" checked data-help="Set EFFECT_AUTOSTART on the first update after a stop so the stopped effect starts again."> autostart resume</label>
+            <label><input id="playAfterAllocate" type="checkbox" checked data-help="Also send setEffectState(PLAY) after allocation. G923 firmware ignores this; the G Pro and RS50 may honour it."> play after allocate</label>
+            <label><input id="playAfterUpdate" type="checkbox" data-help="Send setEffectState(PLAY) after every update. Usually unnecessary and adds an extra HID++ round trip."> play after update</label>
+            <label><input id="playAfterResume" type="checkbox" checked data-help="Send setEffectState(PLAY) after resume. G923 ignores it; use autostart resume or recreate on resume instead."> play after resume</label>
+            <label><input id="recreateOnResume" type="checkbox" data-help="Destroy the stopped slot and allocate a fresh effect on resume. Use this if autostart or PLAY does not restart the effect."> recreate on resume</label>
+            <label><input id="destroyOnStop" type="checkbox" data-help="Destroy the effect slot immediately on stop instead of leaving a zero-force effect allocated."> destroy on stop</label>
+            <label><input id="disableAutocenter" type="checkbox" checked data-help="Upload a zero-gain spring during initialize to suppress the firmware default centering force."> disable autocenter</label>
+            <label><input id="resetAll" type="checkbox" checked data-help="Send resetAll during initialize. Clears effects left over from previous sessions or browser reloads."> reset all on init</label>
+            <label><input id="protocolVersion" type="checkbox" checked data-help="Send IRoot.GetProtocolVersion with a short timeout and log the HID++ major and minor version. Failure is non-fatal."> version handshake</label>
+            <label><input id="setAperture" type="checkbox" data-help="Set the rotation aperture during initialize. G923 accepts but ignores the command; G Pro and RS50 may apply it."> set aperture</label>
           </div>
+          <p class="hint">Compare <b>autostart update</b> with <b>START=0</b> updates. If force fades or stops, try resume and recreate-on-resume.</p>
           <div class="row">
             <label for="aperture">Aperture</label>
-            <input id="aperture" type="number" min="90" max="2700" step="10" value="900" style="width:92px" />
-            <button id="readAperture">Read</button>
-            <button id="applyAperture">Set</button>
+            <input id="aperture" type="number" min="90" max="2700" step="10" value="900" style="width:92px" data-help="Rotation range in degrees sent through HID++ setAperture. Values are clamped to 90-2700.">
+            <button id="readAperture" data-help="Read the current HID++ aperture and put it in the input box.">Read</button>
+            <button id="applyAperture" data-help="Write the aperture value through HID++ setAperture and log the result.">Set</button>
           </div>
           <div class="row">
             <label for="rate">Update interval</label>
-            <select id="rate">
+            <select id="rate" data-help="Delay between stream updates. 5 ms reproduces the old Lapster loop; 30 ms matches the current RS50 throttle.">
               <option value="5">5 ms (200 Hz)</option>
               <option value="10">10 ms (100 Hz)</option>
               <option value="20">20 ms (50 Hz)</option>
@@ -182,27 +239,28 @@
 
           <h2 style="margin-top:14px">Actions</h2>
           <div class="row">
-            <button id="allocate">Allocate slot</button>
-            <button id="single" class="ok">Single force</button>
-            <button id="start" class="ok">Start stream</button>
-            <button id="stopStream" disabled>Stop stream</button>
+            <button id="allocate" data-help="Download a new constant effect slot using the current force and allocation flags. Logs the device-assigned slot.">Allocate slot</button>
+            <button id="single" class="ok" data-help="Allocate a slot if needed and send one force update. Useful for checking a single pulse without starting the stream.">Single force</button>
+            <button id="start" class="ok" data-help="Start repeated force updates at the selected interval. The safety limit stops streaming after 10 seconds.">Start stream</button>
+            <button id="stopStream" disabled data-help="Stop sending updates and send a zero force followed by setEffectState(STOP).">Stop stream</button>
           </div>
           <div class="row">
-            <button id="stop" class="danger">Stop effect</button>
-            <button id="resume" class="ok">Resume effect</button>
-            <button id="destroy">Destroy slot</button>
-            <button id="reset">Reset all</button>
+            <button id="stop" class="danger" data-help="Send a zero-force update and setEffectState(STOP). The slot stays allocated unless destroy on stop is enabled.">Stop effect</button>
+            <button id="resume" class="ok" data-help="Restart the existing slot using the autostart resume, PLAY and recreate-on-resume settings.">Resume effect</button>
+            <button id="destroy" data-help="Free the active effect slot. The wheel may then re-enable its default centering spring.">Destroy slot</button>
+            <button id="reset" data-help="Send resetAll to clear every effect on the wheel. The active slot becomes invalid.">Reset all</button>
           </div>
           <p class="hint" id="streamStatus">Stream idle.</p>
 
           <h2 style="margin-top:14px">Presets</h2>
+          <p class="hint">Presets change the strategy and start streaming where appropriate. Use the state and log panels to compare results.</p>
           <div class="presets">
-            <button data-preset="single">Single pulse</button>
-            <button data-preset="lapster-old">Lapster old: 200 Hz autostart updates</button>
-            <button data-preset="lapster-new">Lapster new: 200 Hz START=0</button>
-            <button data-preset="rs50">RS50: 33 Hz START=0</button>
-            <button data-preset="g923">G923: autostart updates</button>
-            <button data-preset="resume">Stop → resume</button>
+            <button data-preset="single" data-help="Configure a single constant pulse with allocation autostart and no update autostart.">Single pulse</button>
+            <button data-preset="lapster-old" data-help="Reproduce the deployed dev-a296f45 Lapster path: 5 ms updates with AUTOSTART on every download.">Lapster old: 200 Hz autostart updates</button>
+            <button data-preset="lapster-new" data-help="Reproduce the ea89248 Lapster path: 5 ms updates with START=0 and no autostart on updates.">Lapster new: 200 Hz START=0</button>
+            <button data-preset="rs50" data-help="Use the known-good RS50 start strategy: allocate with autostart, update with START=0 every 30 ms.">RS50: 33 Hz START=0</button>
+            <button data-preset="g923" data-help="Use the G923 strategy: inverted force, AUTOSTART on updates and 30 ms pacing.">G923: autostart updates</button>
+            <button data-preset="resume" data-help="Allocate, stop, then resume to test whether the effect restarts with autostart and PLAY.">Stop → resume</button>
           </div>
         </section>
 
@@ -210,14 +268,15 @@
           <h2>State</h2>
           <div class="grid" id="stats"></div>
           <div class="row" style="margin-top:10px">
-            <button id="copyState">Copy state</button>
-            <button id="clearLog">Clear log</button>
-            <button id="copyLog">Copy log</button>
+            <button id="copyState" data-help="Copy the current JSON state, including the stream counters, to the clipboard.">Copy state</button>
+            <button id="clearLog" data-help="Clear the HID++ request and response log.">Clear log</button>
+            <button id="copyLog" data-help="Copy the visible HID++ log to the clipboard for reporting.">Copy log</button>
           </div>
-          <textarea id="stateText" readonly spellcheck="false"></textarea>
+          <textarea id="stateText" readonly spellcheck="false" data-help="Live JSON snapshot of the driver state, interfaces, slots, force level, queue depth and stream counters."></textarea>
 
+          <p class="hint">TX = request, RX = response. Copy the state and log together when reporting a hardware result.</p>
           <h2 style="margin-top:14px">HID++ log</h2>
-          <div id="log"></div>
+          <div id="log" data-help="Raw HID++ request and response log. TX lines are requests; RX lines are responses; ERROR lines are protocol or transport failures."></div>
         </section>
       </div>
 
@@ -226,6 +285,7 @@
         <a href="./src/logitech-test-driver.js">Test driver source</a>
       </footer>
     </main>
+    <div id="tooltip" role="tooltip"></div>
     <script type="module" src="./logitech-test.js"></script>
   </body>
 </html>
