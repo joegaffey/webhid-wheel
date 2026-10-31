@@ -1,7 +1,7 @@
 # HID device mapping and capture
 
 Status: mapping, setup profiles and config elements implemented in
-`webhid-wheel` 0.4.42 (2026-10-29). See the
+`webhid-wheel` 0.5.0 (2026-10-31). See the
 [component integration guide](./component-integration.md) for the consumer
 contract.
 
@@ -81,7 +81,9 @@ hats, but do not get a steering capability or pill.
 
 Axes are read from the Generic Desktop page (`0x01`) and the Simulation
 Controls page (`0x02`), which is used by some Arduino and pedal devices for
-throttle, brake, clutch or handbrake fields.
+throttle, brake, clutch or handbrake fields. Multi-axis report items are split
+into individual axes, so devices that pack several axes into one report item are
+supported.
 
 `WebHIDWheel.deviceState` exposes the same generic input state for wheel
 sessions. `WebHIDWheel.state` keeps the wheel-specific steering, rotation,

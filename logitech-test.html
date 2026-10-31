@@ -154,7 +154,7 @@
             <p>Use the presets to reproduce known paths, or set the flags manually. The key question is whether the effect keeps playing while force is updated.</p>
             <ul>
               <li><code>autostart allocate</code> starts the effect when the slot is created. RS50 and G923 need this.</li>
-              <li><code>autostart update</code> restarts the effect on every update. This is the old Lapster behaviour and may prevent sustained force.</li>
+              <li><code>autostart update</code> restarts the effect on every update. This may prevent sustained force on some firmware.</li>
               <li><code>START=0</code> updates modify the existing effect without restarting it. This is the current RS50 strategy.</li>
               <li><code>autostart resume</code> plus <code>play after resume</code> restarts a stopped effect.</li>
               <li><code>recreate on resume</code> destroys and reallocates the slot if restarting fails.</li>
@@ -205,7 +205,7 @@
           <h2 style="margin-top:14px">Driver strategy</h2>
           <div class="flags">
             <label><input id="autostartAllocate" type="checkbox" checked data-help="Set EFFECT_AUTOSTART on the first downloadEffect. RS50 and G923 need this to start producing force."> autostart allocate</label>
-            <label><input id="autostartUpdate" type="checkbox" data-help="Set EFFECT_AUTOSTART on every update. This is the old Lapster path and can restart the effect instead of sustaining it."> autostart update</label>
+            <label><input id="autostartUpdate" type="checkbox" data-help="Set EFFECT_AUTOSTART on every update. This can restart the effect instead of sustaining it."> autostart update</label>
             <label><input id="autostartResume" type="checkbox" checked data-help="Set EFFECT_AUTOSTART on the first update after a stop so the stopped effect starts again."> autostart resume</label>
             <label><input id="playAfterAllocate" type="checkbox" checked data-help="Also send setEffectState(PLAY) after allocation. G923 firmware ignores this; the G Pro and RS50 may honour it."> play after allocate</label>
             <label><input id="playAfterUpdate" type="checkbox" data-help="Send setEffectState(PLAY) after every update. Usually unnecessary and adds an extra HID++ round trip."> play after update</label>
@@ -226,7 +226,7 @@
           </div>
           <div class="row">
             <label for="rate">Update interval</label>
-            <select id="rate" data-help="Delay between stream updates. 5 ms reproduces the old Lapster loop; 30 ms matches the current RS50 throttle.">
+            <select id="rate" data-help="Delay between stream updates. 5 ms streams very fast; 30 ms is the observed RS50 update cadence.">
               <option value="5">5 ms (200 Hz)</option>
               <option value="10">10 ms (100 Hz)</option>
               <option value="20">20 ms (50 Hz)</option>
@@ -256,8 +256,8 @@
           <p class="hint">Presets change the strategy and start streaming where appropriate. Use the state and log panels to compare results.</p>
           <div class="presets">
             <button data-preset="single" data-help="Configure a single constant pulse with allocation autostart and no update autostart.">Single pulse</button>
-            <button data-preset="lapster-old" data-help="Reproduce the deployed dev-a296f45 Lapster path: 5 ms updates with AUTOSTART on every download.">Lapster old: 200 Hz autostart updates</button>
-            <button data-preset="lapster-new" data-help="Reproduce the ea89248 Lapster path: 5 ms updates with START=0 and no autostart on updates.">Lapster new: 200 Hz START=0</button>
+            <button data-preset="autostart-updates" data-help="Stream at 5 ms with AUTOSTART on every download.">AUTOSTART updates: 200 Hz</button>
+            <button data-preset="start0-updates" data-help="Stream at 5 ms with START=0 and no autostart on updates.">START=0 updates: 200 Hz</button>
             <button data-preset="rs50" data-help="Use the known-good RS50 start strategy: allocate with autostart, update with START=0 every 30 ms.">RS50: 33 Hz START=0</button>
             <button data-preset="g923" data-help="Use the G923 strategy: inverted force, AUTOSTART on updates and 30 ms pacing.">G923: autostart updates</button>
             <button data-preset="resume" data-help="Allocate, stop, then resume to test whether the effect restarts with autostart and PLAY.">Stop → resume</button>

@@ -1,6 +1,6 @@
 # Logitech, Thrustmaster and Fanatec FFB workarounds
 
-Status: classic Logitech constant force is implemented for G29, Driving Force GT and G923 PlayStation, and HID++ `0x8123` constant force is implemented for G923 Xbox, RS50 and G Pro. None of these Logitech paths has been hardware-verified. Only CAMMUS C5 and FFBeast are hardware-verified. T248 direct WebHID is blocked on Windows; the PadForge bridge is documented in [PadForge wheel bridge for WebHID](./padforge-wheel-bridge.md). Fanatec remains a research note.
+Status: classic Logitech constant force is implemented for G29, Driving Force GT and G923 PlayStation, and HID++ `0x8123` constant force is implemented for G923 Xbox, RS50 and G Pro. The RS50 is partially hardware-verified: single constant force and manual `START=0` updates work. G Pro, G923 and the classic Logitech paths remain unverified. Only CAMMUS C5 and FFBeast are fully hardware-verified. T248 direct WebHID is blocked on Windows; the PadForge bridge is documented in [PadForge wheel bridge for WebHID](./padforge-wheel-bridge.md). Fanatec remains a research note.
 
 This document records what would be needed to support force feedback for Logitech, Thrustmaster and Fanatec wheelbases over WebHID. These vendors do not expose the standard USB HID PID path that CAMMUS and Moza expose, so the generic PID implementation will not provide FFB for them.
 
@@ -11,7 +11,7 @@ This document records what would be needed to support force feedback for Logitec
 | Logitech G25/G27/G29/DFGT/MOMO/DFP | Generic likely | Vendor FF protocol | G29/DFGT implemented but unverified; G25/G27/MOMO/DFP need a profile |
 | Logitech G923 PS (`c266`, `c267`) | Generic likely | Vendor FF protocol + TrueForce | Implemented with the classic path; TrueForce extra |
 | Logitech G923 Xbox (`c26d`, `c26e`) | Generic likely | HID++ `0x8123` | Implemented, not hardware-verified; unified input/HID++ interface |
-| Logitech RS50 (`c276`, `c272` compat) | Generic likely | HID++ `0x8123` + interface-2 TrueForce stream | Implemented, not hardware-verified |
+| Logitech RS50 (`c276`, `c272` compat) | Generic likely | HID++ `0x8123` + interface-2 TrueForce stream | Implemented; single force and `START=0` updates verified, stop/resume unresolved |
 | Logitech G920 (`c262`) | Generic likely | HID++ `0x8123` | Can reuse the HID++ transport; not enabled yet |
 | Logitech G Pro (`c268`, `c272`) | Generic likely | HID++ `0x8123` + interface-2 TrueForce stream | Implemented, not hardware-verified |
 | Thrustmaster T248 | Generic | Vendor protocol, report `0x60` | Blocked in WebHID on Windows; use the PadForge bridge or Linux `hid-tmff2` |
@@ -53,7 +53,7 @@ Implementation notes:
 - Do not use the compatibility-mode-switch commands during normal operation; they can detach and re-enumerate the wheel with a different product ID.
 - G920 and G923 Xbox use HID++; G923 Xbox is covered by the next section.
 
-## Implemented, not hardware-verified: G923 Xbox, RS50, G Pro / HID++
+## Implemented: G923 Xbox, RS50, G Pro / HID++
 
 These wheels use HID++ feature `0x8123`, not the classic force protocol:
 
@@ -84,9 +84,10 @@ Implementation notes:
 - On connect the wheel is reset, a zero-gain autocentre spring is uploaded, and
   a constant-effect slot is allocated.
 - Constant force uses `downloadEffect` function 2 with a signed 16-bit level at
-  params 6-7 and infinite duration. The G923 ignores `setEffectState(PLAY)`, so
-  the `AUTOSTART` bit is set on every download. `constantFast()` updates the
-  allocated slot with one report per update.
+  params 6-7 and infinite duration. Allocation uses the `AUTOSTART` bit;
+  normal updates use `START=0` and update the allocated slot. `constantFast()`
+  sends one report per update. An `autostartUpdates` option is available for
+  firmware that needs `AUTOSTART` on every update.
 - The G923 force sign is inverted relative to the G920 convention. The G923
   profile compensates for this internally.
 - Stop writes a zero-force update before `setEffectState(STOP)`; disconnect
@@ -96,6 +97,8 @@ Implementation notes:
 - `IRoot.GetProtocolVersion` is sent best-effort during init with a short timeout
   and never blocks FFB startup.
 - If force still pulls the wrong way, use `ffbInvert`.
+- Hardware findings and the unresolved stop/resume behaviour are recorded in
+  [Logitech G Pro and RS50 HID++ FFB findings](./logitech-gpro-rs50-ffb-findings.md).
 
 G920 (`046d:c262`) uses the same HID++ feature and transport, but is not enabled
 yet because its gear-driven firmware may require periodic force refresh or

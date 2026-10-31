@@ -457,7 +457,7 @@ const presets = {
     applyConfigToDriver();
     await driver.allocate(forceValue());
   },
-  'lapster-old': async () => {
+  'autostart-updates': async () => {
     syncControlsFromConfig({
       ...driver.config,
       autostartAllocate: true,
@@ -472,7 +472,7 @@ const presets = {
     applyConfigToDriver();
     startStream();
   },
-  'lapster-new': async () => {
+  'start0-updates': async () => {
     syncControlsFromConfig({
       ...driver.config,
       autostartAllocate: true,

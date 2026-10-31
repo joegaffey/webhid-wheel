@@ -188,7 +188,7 @@ WebHIDWheel.registerProfile({
 | Logitech Driving Force GT | steering, buttons | constant force (classic Logitech) | No |
 | Logitech G923 PlayStation/PC (`c266`, `c267`) | steering, buttons, axes | constant force (classic Logitech) | No |
 | Logitech G923 Xbox/PC (`c26d`, `c26e`) | steering, buttons, axes | constant force (HID++ `0x8123`) | No |
-| Logitech RS50 (`c276`) | steering, buttons, axes | constant force (HID++ `0x8123`) | No |
+| Logitech RS50 (`c276`) | steering, buttons, axes | constant force (HID++ `0x8123`) | **Partial**: single force and `START=0` updates verified |
 | Logitech G Pro Racing Wheel (`c268`, `c272`) | steering, buttons, axes | constant force (HID++ `0x8123`) | No |
 | CAMMUS C5 | steering, buttons, axes | constant force (USB-PID) | **Yes** (Windows 11, Chrome) |
 | CAMMUS C12 | steering, buttons, axes | constant force (USB-PID) | No |
@@ -196,10 +196,11 @@ WebHIDWheel.registerProfile({
 | Any other HID wheel with a wheel-like product name | steering/axes/buttons (generic) | — | No |
 | Any USB-PID FFB device | — | constant force (auto-detected) | No |
 
-Only **CAMMUS C5** and **FFBeast** have been verified on hardware, both on
-Windows 11 with Chrome. Other rows are implemented or expected but have not
-been hardware-verified. If force pulls the wrong way, tick **Invert Force**
-in the demo or set `ffbInvert: true`.
+**CAMMUS C5** and **FFBeast** are fully verified on hardware. The **RS50** is
+partially verified: a single constant force and manual `START=0` updates work;
+sustained in-game updates and stop/resume remain unresolved. Other rows are
+implemented or expected but have not been hardware-verified. If force pulls the
+wrong way, tick **Invert Force** in the demo or set `ffbInvert: true`.
 
 G29, Driving Force GT and the G923 PlayStation edition use Logitech's classic force-feedback protocol. The G923 Xbox edition, RS50 and G Pro use Logitech HID++ feature `0x8123`. HID++ wheels may expose input and FFB on separate HID interfaces or on one unified interface; the library groups them into one session either way. RS50 and G Pro also work in G923 compatibility mode via the G923 HID++ profile. G920 and Fanatec wheels still need separate profiles; see [Logitech, Thrustmaster and Fanatec FFB workarounds](./docs/vendor-ffb-workarounds.md).
 
@@ -217,7 +218,9 @@ npx serve
 For Logitech HID++ bring-up, open `logitech-wizard.html` for the guided,
 non-technical test flow and downloadable report, or `logitech-test.html` for the
 advanced bench with configurable autostart/update/stop strategies, update-rate
-presets, raw HID++ logging and force-stream safety limits.
+presets, raw HID++ logging and force-stream safety limits. Current RS50/G Pro
+hardware findings are recorded in
+[`docs/logitech-gpro-rs50-ffb-findings.md`](docs/logitech-gpro-rs50-ffb-findings.md).
 
 ## Built with webhid-wheel
 

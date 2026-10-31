@@ -64,7 +64,7 @@ const tests = [
     id: 'fast',
     title: 'Fast updates',
     rateMs: 5,
-    description: 'The wheel will pull for about 5 seconds while updates arrive very quickly. This reproduces the old Lapster update path.',
+    description: 'The wheel will pull for about 5 seconds while updates arrive very quickly. This checks whether very fast updates sustain force.',
     config: { autostartUpdate: true, playAfterAllocate: false },
     run: async () => {
       await driver.allocate(FORCE);

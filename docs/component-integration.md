@@ -1,6 +1,6 @@
 # Component integration guide
 
-Status: current for `webhid-wheel` 0.4.42 (2026-10-29).
+Status: current for `webhid-wheel` 0.5.0 (2026-10-31).
 
 This is the canonical integration contract for `<webhid-config-panel>` and the
 core package. It is written for application developers and for coding agents
@@ -298,6 +298,10 @@ if (match.status === 'matched') {
 `reconnect()` uses only already-authorized devices and never calls
 `requestDevice()`. A user gesture is still required to authorize a device that
 is not in `getDevices()`.
+
+If a saved profile no longer matches, unbound steering and FFB bindings fall
+back to the connected wheel. Axis and button mappings stay unbound until they
+are remapped.
 
 ## 10. Theming
 
