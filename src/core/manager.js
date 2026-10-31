@@ -189,28 +189,28 @@ export class WheelManager {
   }
 
   async _resolveInterfaces(device) {
-    if (Array.isArray(device)) {
-      const interfaces = device.filter(Boolean);
-      return { primary: pickPrimaryInterface(interfaces), interfaces };
-    }
-    const interfaces = [device];
+    const interfaces = (Array.isArray(device) ? device : [device]).filter(Boolean);
+    const primary = Array.isArray(device)
+      ? pickPrimaryInterface(interfaces)
+      : (device || null);
+    if (!primary) return { primary: null, interfaces };
     if (typeof navigator !== 'undefined' && navigator.hid &&
         typeof navigator.hid.getDevices === 'function') {
       try {
         const granted = await navigator.hid.getDevices();
         for (const candidate of granted || []) {
-          if (candidate && candidate !== device &&
-              samePhysicalDevice(candidate, device) &&
+          if (candidate && candidate !== primary &&
+              samePhysicalDevice(candidate, primary) &&
               !interfaces.includes(candidate)) {
             interfaces.push(candidate);
           }
         }
       } catch { /* noop */ }
     }
-    if (interfaces.length > 1 && hasAmbiguousInterfaceGroup(interfaces, device)) {
-      return { primary: device, interfaces: [device] };
+    if (interfaces.length > 1 && hasAmbiguousInterfaceGroup(interfaces, primary)) {
+      return { primary, interfaces: [primary] };
     }
-    return { primary: pickPrimaryInterface(interfaces) || device, interfaces };
+    return { primary: pickPrimaryInterface(interfaces) || primary, interfaces };
   }
 
   _attach(id, metadata, instance) {
@@ -315,7 +315,7 @@ export class WheelManager {
         this._applySteeringSettings();
         this._applyFfbSettings();
         if (this._profile && this._missingAliases.length) this.applySetup(this._profile);
-        else this._ensureDefaultBindings(existing);
+        this._ensureDefaultBindings(existing);
         this.emit('connect', { session: existing, device: existing.device });
       }
       this._recomputeChannels();
@@ -364,9 +364,8 @@ export class WheelManager {
 
     if (this._profile && this._missingAliases.length) {
       this.applySetup(this._profile);
-    } else {
-      this._ensureDefaultBindings(entry);
     }
+    this._ensureDefaultBindings(entry);
 
     this._recomputeChannels();
     this.emit('connect', { session: entry, device: entry.device });

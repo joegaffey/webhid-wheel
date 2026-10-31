@@ -36,6 +36,7 @@ function stateFor(wheel) {
       playing: false,
       initialized: false,
       initPromise: null,
+      slotPromise: null,
       lastLevel: 0,
       options: {}
     };
@@ -43,10 +44,10 @@ function stateFor(wheel) {
   return wheel._hidppFfb;
 }
 
-function constantParams(effectId, level, options) {
+function constantParams(effectId, level, autostart) {
   const params = new Uint8Array(14);
   params[0] = effectId;
-  params[1] = EFFECT_CONSTANT | (options.autostart === false ? 0 : EFFECT_AUTOSTART);
+  params[1] = EFFECT_CONSTANT | (autostart ? EFFECT_AUTOSTART : 0);
   params[6] = (level >> 8) & 0xff;
   params[7] = level & 0xff;
   return params;
@@ -118,33 +119,40 @@ async function ensureInitialized(device, wheel, options, state) {
   return state.initPromise;
 }
 
+async function allocateConstantSlot(state, level, options) {
+  const response = await state.transport.send(
+    state.featureIndex,
+    FN_DOWNLOAD_EFFECT,
+    constantParams(0, level, options.autostart !== false)
+  );
+  const slot = response[3];
+  if (!slot) throw new Error('Logitech HID++ did not allocate a force-feedback slot.');
+  state.slot = slot;
+  state.playing = true;
+  try {
+    await state.transport.send(state.featureIndex, FN_SET_EFFECT_STATE, [slot, STATE_PLAY]);
+  } catch { /* autostart is the primary path */ }
+}
+
 async function applyConstant(device, value, wheel, options) {
   const state = stateFor(wheel);
   await ensureInitialized(device, wheel, options, state);
   const level = forceLevel(value, wheel, options);
 
   if (!state.slot) {
-    const response = await state.transport.send(
-      state.featureIndex,
-      FN_DOWNLOAD_EFFECT,
-      constantParams(0, level, options)
-    );
-    const slot = response[3];
-    if (!slot) throw new Error('Logitech HID++ did not allocate a force-feedback slot.');
-    state.slot = slot;
-    state.playing = true;
-    try {
-      await state.transport.send(state.featureIndex, FN_SET_EFFECT_STATE, [slot, STATE_PLAY]);
-    } catch { /* autostart is the primary path */ }
-  } else {
-    await state.transport.send(
-      state.featureIndex,
-      FN_DOWNLOAD_EFFECT,
-      constantParams(state.slot, level, options)
-    );
-    state.playing = true;
+    if (!state.slotPromise) {
+      state.slotPromise = allocateConstantSlot(state, level, options)
+        .finally(() => { state.slotPromise = null; });
+    }
+    await state.slotPromise;
   }
 
+  await state.transport.send(
+    state.featureIndex,
+    FN_DOWNLOAD_EFFECT,
+    constantParams(state.slot, level, options.autostartUpdates === true)
+  );
+  state.playing = true;
   state.lastLevel = level;
 }
 
@@ -155,7 +163,7 @@ async function stop(wheel) {
     await state.transport.send(
       state.featureIndex,
       FN_DOWNLOAD_EFFECT,
-      constantParams(state.slot, 0, state.options || {})
+      constantParams(state.slot, 0, false)
     );
   } catch { /* noop */ }
   try {

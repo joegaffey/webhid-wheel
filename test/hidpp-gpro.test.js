@@ -6,6 +6,7 @@ import {
   detectDeviceCapabilities,
   isForceFeedbackWheel
 } from '../webhid-wheel.js';
+import { createHidppFfb } from '../src/core/hidpp-ffb.js';
 
 globalThis.navigator.hid = {
   requestDevice: async () => [],
@@ -200,11 +201,13 @@ test('HID++ FFB discovers the feature, allocates a slot and updates force', asyn
 
   await wheel.setConstantForce(0.5);
   const downloads = sentFor(hidpp, hidpp.featureIndex, 2);
-  const constant = downloads[downloads.length - 1];
-  assert.equal(constant.data[3], 0);
-  assert.equal(constant.data[4], 0x80);
-  assert.equal((constant.data[9] << 8) | constant.data[10], 4096);
+  const allocation = downloads.find(report => report.data[3] === 0 && report.data[4] === 0x80);
+  assert.ok(allocation);
   assert.equal(wheel._hidppFfb.slot, 2);
+  const constant = downloads[downloads.length - 1];
+  assert.equal(constant.data[3], 2);
+  assert.equal(constant.data[4], 0x00);
+  assert.equal((constant.data[9] << 8) | constant.data[10], 4096);
   assert.deepEqual(wheel._hidppFfb.protocolVersion, { major: 4, minor: 2, ping: 0x5a });
 
   const play = sentFor(hidpp, hidpp.featureIndex, 3).slice(-1)[0];
@@ -214,13 +217,13 @@ test('HID++ FFB discovers the feature, allocates a slot and updates force', asyn
   const updates = sentFor(hidpp, hidpp.featureIndex, 2);
   const update = updates[updates.length - 1];
   assert.equal(update.data[3], 2);
-  assert.equal(update.data[4], 0x80);
+  assert.equal(update.data[4], 0x00);
   assert.equal((update.data[9] << 8) | update.data[10], 0xf000);
 
   await wheel.stopEffects();
   const zero = sentFor(hidpp, hidpp.featureIndex, 2).slice(-1)[0];
   assert.equal(zero.data[3], 2);
-  assert.equal(zero.data[4], 0x80);
+  assert.equal(zero.data[4], 0x00);
   assert.equal((zero.data[9] << 8) | zero.data[10], 0);
   const stop = sentFor(hidpp, hidpp.featureIndex, 3).slice(-1)[0];
   assert.deepEqual(Array.from(stop.data.slice(3, 5)), [2, 0x01]);
@@ -228,6 +231,28 @@ test('HID++ FFB discovers the feature, allocates a slot and updates force', asyn
   await wheel.disconnect();
   assert.equal(hidpp.opened, false);
   assert.equal(input.opened, false);
+});
+
+test('HID++ FFB allocates one constant slot for concurrent updates', async () => {
+  const input = new FakeInputDevice();
+  const hidpp = new FakeHidppDevice();
+  const wheel = new WebHIDWheel();
+  await wheel.connect(input, { interfaces: [input, hidpp] });
+
+  await Promise.all([
+    wheel.setConstantForceFast(0.1),
+    wheel.setConstantForceFast(0.2),
+    wheel.setConstantForceFast(0.3),
+    wheel.setConstantForceFast(0.4),
+    wheel.setConstantForceFast(0.5)
+  ]);
+
+  const downloads = sentFor(hidpp, hidpp.featureIndex, 2);
+  const allocations = downloads.filter(report => report.data[3] === 0 && report.data[4] === 0x80);
+  assert.equal(allocations.length, 1);
+  assert.ok(wheel._hidppFfb.slot > 1);
+  const updates = downloads.filter(report => report.data[3] === wheel._hidppFfb.slot);
+  assert.equal(updates.length, 5);
 });
 
 test('G Pro input report drives steering, buttons and hat', async () => {
@@ -362,9 +387,9 @@ test('G923 Xbox uses HID++ on the same interface as input', async () => {
 
   await wheel.setConstantForce(0.5);
   const downloads = sentFor(device, device.featureIndex, 2);
-  assert.equal(downloads.length, 2);
-  assert.equal(downloads[1].data[4], 0x80);
-  assert.equal((downloads[1].data[9] << 8) | downloads[1].data[10], 0xf000);
+  assert.equal(downloads.length, 3);
+  assert.equal(downloads[downloads.length - 1].data[4], 0x00);
+  assert.equal((downloads[downloads.length - 1].data[9] << 8) | downloads[downloads.length - 1].data[10], 0xf000);
 
   device.oninputreport(report(1, [
     0x00, 0x80,
@@ -419,4 +444,126 @@ test('RS50 profile uses the separate HID++ interface', async () => {
   assert.equal(wheel.device, input);
   assert.equal(wheel.ffbDevice, hidpp);
   assert.equal(wheel.ffbCaps.constant, true);
+});
+
+test('WheelManager discovers a HID++ sibling when the picker returns only the input', async () => {
+  const input = new FakeInputDevice();
+  const hidpp = new FakeHidppDevice();
+  globalThis.navigator.hid = {
+    requestDevice: async () => [input],
+    getDevices: async () => [input, hidpp]
+  };
+
+  const manager = new WheelManager();
+  const entry = await manager.connect();
+
+  assert.equal(entry.device, input);
+  assert.deepEqual(entry.interfaces, [input, hidpp]);
+  assert.equal(entry.capabilities.ffb, true);
+});
+
+test('WheelManager expands a single selected interface with its HID++ sibling', async () => {
+  const input = new FakeInputDevice();
+  const hidpp = new FakeHidppDevice();
+  globalThis.navigator.hid = {
+    requestDevice: async () => [],
+    getDevices: async () => [input, hidpp]
+  };
+
+  const manager = new WheelManager();
+  const entry = await manager.connect([input]);
+
+  assert.equal(entry.device, input);
+  assert.deepEqual(entry.interfaces, [input, hidpp]);
+  assert.equal(entry.capabilities.ffb, true);
+});
+
+test('WheelManager falls back to the connected wheel when a saved profile does not match', async () => {
+  const input = new FakeInputDevice();
+  const hidpp = new FakeHidppDevice();
+  globalThis.navigator.hid = {
+    requestDevice: async () => [input],
+    getDevices: async () => [input, hidpp]
+  };
+
+  const manager = new WheelManager();
+  const entry = await manager.connect();
+  const profile = manager.toSetup();
+  profile.devices[0].hardware.signature = 'stale-signature';
+  await manager.disconnectAll();
+  manager.applySetup(profile);
+
+  const reconnected = await manager.connect([input]);
+
+  assert.equal(reconnected.id, entry.id);
+  assert.equal(manager.getCalibration().device, reconnected.id);
+  assert.equal(manager.getFfb().device, reconnected.id);
+});
+
+
+test('HID++ FFB can opt into autostart on updates', async () => {
+  const input = new FakeInputDevice();
+  const hidpp = new FakeHidppDevice();
+  for (const device of [input, hidpp]) {
+    device.vendorId = 0x1234;
+    device.productId = 0x5678;
+    device.productName = 'Test HID++ Wheel';
+  }
+  WebHIDWheel.registerProfile({
+    name: 'Test HID++ autostart updates',
+    vendorId: 0x1234,
+    productId: 0x5678,
+    usagePage: 0x01,
+    ffbInterface: 'hidpp',
+    ffb: createHidppFfb({ autostartUpdates: true })
+  });
+
+  const wheel = new WebHIDWheel();
+  await wheel.connect(input, { interfaces: [input, hidpp] });
+  await wheel.setConstantForce(0.5);
+
+  const downloads = sentFor(hidpp, hidpp.featureIndex, 2);
+  const update = downloads[downloads.length - 1];
+  assert.equal(update.data[4], 0x80);
+});
+
+test('WheelManager keeps a valid saved profile binding when another wheel connects', async () => {
+  const inputA = new FakeInputDevice();
+  const hidppA = new FakeHidppDevice();
+  globalThis.navigator.hid = {
+    requestDevice: async () => [inputA],
+    getDevices: async () => [inputA, hidppA]
+  };
+
+  const manager = new WheelManager();
+  const entryA = await manager.connect();
+  manager.setCalibration({ device: entryA.id, deadzone: 0.11, maxRotation: 1000 });
+  manager.setFfb({ device: entryA.id, gain: 0.33 });
+  const profile = manager.toSetup({ profileName: 'Valid rig' });
+
+  await manager.disconnect(entryA.id);
+  manager.applySetup(profile);
+
+  const reconnected = await manager.connect([inputA]);
+  assert.equal(reconnected.id, entryA.id);
+  assert.equal(manager.getCalibration().device, reconnected.id);
+  assert.equal(manager.getCalibration().deadzone, 0.11);
+  assert.equal(manager.getFfb().device, reconnected.id);
+  assert.equal(manager.getFfb().gain, 0.33);
+
+  const inputB = new FakeInputDevice();
+  const hidppB = new FakeHidppDevice();
+  for (const device of [inputB, hidppB]) {
+    device.vendorId = 0x046d;
+    device.productId = 0xc276;
+    device.productName = 'RS50 Base';
+  }
+  globalThis.navigator.hid = {
+    requestDevice: async () => [inputB],
+    getDevices: async () => [inputA, hidppA, inputB, hidppB]
+  };
+
+  await manager.connect([inputB]);
+  assert.equal(manager.getCalibration().device, reconnected.id);
+  assert.equal(manager.getFfb().device, reconnected.id);
 });
