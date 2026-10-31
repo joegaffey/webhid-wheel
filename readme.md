@@ -214,9 +214,10 @@ npx serve
 # then open the URL it prints (e.g. http://localhost:3000)
 ```
 
-For Logitech HID++ bring-up, open `logitech-test.html`. It is a standalone
-test bench with a dedicated driver version, configurable autostart/update/stop
-strategies, update-rate presets, raw HID++ logging and force-stream safety limits.
+For Logitech HID++ bring-up, open `logitech-wizard.html` for the guided,
+non-technical test flow and downloadable report, or `logitech-test.html` for the
+advanced bench with configurable autostart/update/stop strategies, update-rate
+presets, raw HID++ logging and force-stream safety limits.
 
 ## Built with webhid-wheel
 

@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <title>Logitech Wheel Test Wizard</title>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="description" content="Guided force-feedback test wizard for Logitech G923, RS50 and G Pro wheels." />
+    <link rel="icon" href="data:," />
+    <style>
+      :root {
+        --bg: #0d1016;
+        --card: #171c26;
+        --card-2: #1d2330;
+        --border: #2a3242;
+        --text: #eef2f8;
+        --muted: #9aa6ba;
+        --accent: #5b8cff;
+        --ok: #34d399;
+        --warn: #ffb86b;
+        --bad: #f87171;
+      }
+      * { box-sizing: border-box; }
+      html, body { margin: 0; padding: 0; }
+      body {
+        background: radial-gradient(1100px 650px at 50% -10%, #17243d 0%, var(--bg) 62%) fixed;
+        color: var(--text);
+        font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
+        font-size: 16px;
+        line-height: 1.5;
+        padding: 22px 16px 48px;
+      }
+      main { max-width: 900px; margin: 0 auto; }
+      header { text-align: center; margin-bottom: 16px; }
+      h1 { margin: 0 0 6px; font-size: 1.65rem; }
+      header p { margin: 0 auto; max-width: 720px; color: var(--muted); }
+      .topbar { display: flex; justify-content: center; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+      .card {
+        background: linear-gradient(180deg, var(--card), var(--card-2));
+        border: 1px solid var(--border); border-radius: 16px; padding: 20px;
+      }
+      .progress { display: flex; justify-content: space-between; gap: 10px; color: var(--muted); font-size: .82rem; margin-bottom: 8px; }
+      .progress-bar { height: 8px; background: #0a0d13; border: 1px solid var(--border); border-radius: 999px; overflow: hidden; margin-bottom: 18px; }
+      .progress-bar span { display: block; height: 100%; width: 0; background: linear-gradient(90deg, #5b8cff, #7ee0b8); transition: width .2s; }
+      h2 { margin: 0 0 8px; font-size: 1.25rem; }
+      h3 { margin: 0 0 6px; font-size: .78rem; text-transform: uppercase; letter-spacing: .12em; color: var(--muted); }
+      p { margin: 6px 0; }
+      .muted { color: var(--muted); }
+      .hint { color: var(--muted); font-size: .88rem; }
+      .notice { border-left: 3px solid var(--warn); background: rgba(255, 184, 107, .08); padding: 10px 12px; border-radius: 8px; margin: 12px 0; }
+      .notice strong { color: var(--warn); }
+      .status { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0; }
+      .pill { border: 1px solid var(--border); border-radius: 999px; padding: 3px 10px; color: var(--muted); font-size: .8rem; }
+      .pill.ok { color: var(--ok); border-color: rgba(52, 211, 153, .4); }
+      .pill.bad { color: var(--bad); border-color: rgba(248, 113, 113, .4); }
+      .pill.warn { color: var(--warn); border-color: rgba(255, 184, 107, .4); }
+      .device { display: grid; gap: 6px; background: #0d1119; border: 1px solid var(--border); border-radius: 10px; padding: 12px; margin: 12px 0; }
+      .device div { display: flex; justify-content: space-between; gap: 12px; font-size: .86rem; }
+      .device b { color: var(--muted); font-weight: 500; }
+      .device span { text-align: right; overflow-wrap: anywhere; }
+      button {
+        appearance: none; cursor: pointer; background: #080b10; color: var(--text);
+        border: 1px solid var(--border); border-radius: 9px; padding: 10px 14px;
+        font: inherit; font-size: .92rem; min-height: 42px;
+      }
+      button:hover:not(:disabled) { border-color: var(--accent); }
+      button:disabled { opacity: .4; cursor: default; }
+      button.primary { background: rgba(91, 140, 255, .16); border-color: rgba(91, 140, 255, .65); }
+      button.ok { background: rgba(52, 211, 153, .12); border-color: rgba(52, 211, 153, .55); }
+      button.danger { background: rgba(248, 113, 113, .12); border-color: rgba(248, 113, 113, .6); }
+      .row { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin: 12px 0; }
+      .actions { display: flex; justify-content: space-between; gap: 10px; margin-top: 20px; }
+      .actions .right { display: flex; gap: 10px; }
+      label { color: var(--muted); font-size: .9rem; }
+      input[type="text"], textarea, select {
+        width: 100%; background: #0b0f16; color: var(--text); border: 1px solid var(--border);
+        border-radius: 8px; padding: 9px 10px; font: inherit;
+      }
+      textarea { min-height: 90px; resize: vertical; }
+      .field { margin: 12px 0; }
+      .field label { display: block; margin-bottom: 5px; color: var(--text); }
+      .question { margin: 14px 0; padding: 12px; border: 1px solid var(--border); border-radius: 10px; background: #11161f; }
+      .question p { margin: 0 0 8px; font-weight: 600; }
+      .choices { display: flex; flex-wrap: wrap; gap: 8px; }
+      .choice { display: flex; align-items: center; gap: 6px; border: 1px solid var(--border); border-radius: 8px; padding: 7px 10px; color: var(--text); font-size: .9rem; background: #0b0f16; }
+      .choice input { accent-color: var(--accent); }
+      .test-status { margin: 10px 0; padding: 10px 12px; border-radius: 8px; border: 1px solid var(--border); color: var(--muted); }
+      .test-status.running { color: var(--warn); border-color: rgba(255, 184, 107, .5); }
+      .test-status.done { color: var(--ok); border-color: rgba(52, 211, 153, .5); }
+      .test-status.error { color: var(--bad); border-color: rgba(248, 113, 113, .5); }
+      .hidden { display: none !important; }
+      .summary { display: grid; gap: 8px; margin: 12px 0; }
+      .summary-row { background: #11161f; border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; font-size: .88rem; }
+      .summary-row b { display: block; color: var(--muted); font-size: .72rem; text-transform: uppercase; letter-spacing: .08em; margin-bottom: 2px; }
+      #messageText {
+        min-height: 320px;
+        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        font-size: .78rem;
+      }
+      .reportDetails { margin-top: 12px; }
+      .reportDetails summary { cursor: pointer; color: var(--muted); font-size: .9rem; }
+      .reportDetails #reportText { margin-top: 8px; }
+      #reportText { min-height: 260px; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: .76rem; }
+      .skip { color: var(--muted); text-decoration: underline; cursor: pointer; font-size: .84rem; }
+      footer { text-align: center; color: var(--muted); font-size: .78rem; margin-top: 18px; }
+      a { color: #8ab4ff; }
+      @media (max-width: 620px) {
+        .actions { flex-direction: column-reverse; }
+        .actions .right { flex-direction: column; }
+        .actions button { width: 100%; }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <header>
+        <h1>Logitech Wheel Test Wizard</h1>
+        <p>Guided force-feedback tests for the Logitech G923, RS50 and G Pro. The wizard runs a few short, low-force tests and creates a report you can send back.</p>
+        <div class="topbar">
+          <button id="stopNow" class="danger">Stop force now</button>
+          <button id="restart">Start over</button>
+        </div>
+      </header>
+
+      <div class="card">
+        <div class="progress">
+          <span id="stepLabel">Step 1</span>
+          <span id="stepName">Welcome</span>
+        </div>
+        <div class="progress-bar"><span id="progressFill"></span></div>
+
+        <section class="step" data-step="connect">
+          <h2>Before you start</h2>
+          <div class="notice">
+            <strong>Safety:</strong> the wheel will move on its own during the tests. Keep hands, cables and objects clear of the wheel, but stay ready to press <b>Stop force now</b>. Start with the wheel free to turn.
+          </div>
+          <p>Close Logitech G HUB before connecting, because it can take control of the wheel.</p>
+          <p>For an RS50 or G Pro, use the mode you normally race in. Native mode and G923 compatibility mode are both supported.</p>
+          <label class="choice"><input id="safety" type="checkbox" /> I understand and the wheel is free to move.</label>
+          <div class="row">
+            <button id="connect" class="primary" disabled>Connect wheel</button>
+          </div>
+          <div class="status" id="connectStatus"><span class="pill">not connected</span></div>
+          <p id="connectHelp" class="hint"></p>
+        </section>
+
+        <section class="step hidden" data-step="details">
+          <h2>Your wheel</h2>
+          <div class="device" id="deviceInfo"></div>
+          <div class="field">
+            <label for="mode">Which mode is the wheel using?</label>
+            <select id="mode">
+              <option value="native">Native RS50 / G Pro mode</option>
+              <option value="g923">G923 / compatibility mode</option>
+              <option value="unknown" selected>Not sure</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="wheelNotes">Anything we should know? (optional)</label>
+            <textarea id="wheelNotes" placeholder="For example: G923 Xbox, firmware version, unusual behaviour, G HUB version."></textarea>
+          </div>
+          <p class="hint">The report includes the detected product IDs and interfaces, so you do not need to find them yourself.</p>
+        </section>
+
+        <div id="testSteps"></div>
+
+        <section class="step hidden" data-step="report">
+          <h2>Your report</h2>
+          <p>Review the answers below, then download or copy the report and send it back.</p>
+          <div class="summary" id="answerSummary"></div>
+          <div class="field">
+            <label for="finalNotes">Anything else? (optional)</label>
+            <textarea id="finalNotes" placeholder="Anything that happened outside the tests, or anything you want to add."></textarea>
+          </div>
+          <div class="row">
+            <button id="copyMessage" class="primary">Copy message</button>
+            <button id="downloadMessage">Download .txt</button>
+          </div>
+          <p class="hint">Copy the message and paste it into an email or WhatsApp. Use Download .txt if you prefer to attach a file.</p>
+          <p id="reportStatus" class="hint"></p>
+          <div class="field">
+            <label for="messageText">Message for email or WhatsApp</label>
+            <textarea id="messageText" readonly spellcheck="false"></textarea>
+          </div>
+          <details class="reportDetails">
+            <summary>Technical details (optional)</summary>
+            <div class="row">
+              <button id="copyReport">Copy JSON</button>
+              <button id="downloadReport">Download JSON</button>
+            </div>
+            <textarea id="reportText" readonly spellcheck="false"></textarea>
+          </details>
+        </section>
+
+        <div class="actions">
+          <button id="back" class="hidden">Back</button>
+          <div class="right">
+            <button id="skipTest" class="hidden">Skip this test</button>
+            <button id="next" class="primary" disabled>Continue</button>
+          </div>
+        </div>
+      </div>
+
+      <footer>
+        <a href="./logitech-test.html">Advanced test bench</a> ·
+        <a href="./index.html">Main demo</a>
+      </footer>
+    </main>
+    <script type="module" src="./logitech-wizard.js?v=1"></script>
+  </body>
+</html>
