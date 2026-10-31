@@ -214,6 +214,10 @@ npx serve
 # then open the URL it prints (e.g. http://localhost:3000)
 ```
 
+For Logitech HID++ bring-up, open `logitech-test.html`. It is a standalone
+test bench with a dedicated driver version, configurable autostart/update/stop
+strategies, update-rate presets, raw HID++ logging and force-stream safety limits.
+
 ## Built with webhid-wheel
 
 - **[Lapster](https://joegaffey.com/lapster/)** — a web-native vehicle simulation engine with a browser racing demo, Rust/Wasm physics, and wgpu rendering ([source](https://github.com/joegaffey/lapster)).
