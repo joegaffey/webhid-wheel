@@ -226,20 +226,28 @@ function buildGenericDeviceLayout(device) {
         const id = first & 0xffff;
 
         if (!item.isConstant && size > 0 && count > 0) {
-          if (((page === 0x01 && GENERIC_AXIS_IDS.has(id)) || (page === 0x02 && size >= 8)) && count === 1) {
-            const axis = {
-              index: axisIndex++, reportId: report.reportId, offset, size,
-              min: item.logicalMinimum, max: item.logicalMaximum, usage: first
-            };
-            layout.axes.push(axis);
-            entry.fields.push({ type: 'axis', ...axis });
-          } else if (page === 0x01 && id === 0x39 && count === 1) {
-            const hat = {
-              index: hatIndex++, reportId: report.reportId, offset, size,
-              min: item.logicalMinimum, max: item.logicalMaximum, usage: first
-            };
-            layout.hats.push(hat);
-            entry.fields.push({ type: 'hat', ...hat });
+          if ((page === 0x01 && GENERIC_AXIS_IDS.has(id)) || (page === 0x02 && size >= 8)) {
+            for (let b = 0; b < count; b++) {
+              const axis = {
+                index: axisIndex++, reportId: report.reportId,
+                offset: offset + b * size, size,
+                min: item.logicalMinimum, max: item.logicalMaximum,
+                usage: usages[b] || first
+              };
+              layout.axes.push(axis);
+              entry.fields.push({ type: 'axis', ...axis });
+            }
+          } else if (page === 0x01 && id === 0x39) {
+            for (let b = 0; b < count; b++) {
+              const hat = {
+                index: hatIndex++, reportId: report.reportId,
+                offset: offset + b * size, size,
+                min: item.logicalMinimum, max: item.logicalMaximum,
+                usage: usages[b] || first
+              };
+              layout.hats.push(hat);
+              entry.fields.push({ type: 'hat', ...hat });
+            }
           } else if (size === 1 && (page === 0x09 || item.isRange || (!usages.length && count > 1))) {
             for (let b = 0; b < count; b++) {
               const button = {

@@ -64,6 +64,22 @@ class FakeDevice {
   async close() { this.opened = false; }
 }
 
+
+function genericDevice(items) {
+  const device = new FakeDevice();
+  device.collections = [{
+    usagePage: 0x01,
+    usage: 0x04,
+    inputReports: [{ reportId: 0, items }],
+    outputReports: [],
+    featureReports: []
+  }];
+  device.productName = 'Arduino Handbrake';
+  device.vendorId = 0x2341;
+  device.productId = 0x8036;
+  return device;
+}
+
 function report(id, bytes, timeStamp = 1) {
   const data = new Uint8Array(bytes);
   return { reportId: id, data: new DataView(data.buffer), timeStamp };
@@ -142,4 +158,42 @@ test('wheel sessions also expose generic axes, hats and raw reports', async () =
   assert.equal(wheel.deviceState.hats[0].direction, 'right');
   assert.equal(wheel.deviceState.buttons[0], true);
   assert.deepEqual(wheel.state.hats, wheel.deviceState.hats);
+});
+
+test('generic HID splits multi-axis report items', async () => {
+  const device = genericDevice([
+    item([
+      usage(0x01, 0x30),
+      usage(0x01, 0x31),
+      usage(0x01, 0x32),
+      usage(0x01, 0x33)
+    ], 8, 4, { max: 255 })
+  ]);
+  const input = new WebHIDDevice();
+  await input.connect(device);
+
+  assert.equal(input.inputLayout.axes.length, 4);
+  device.oninputreport(report(0, [0, 64, 128, 255]));
+  assert.deepEqual(
+    input.state.axes.map(value => Math.round(value * 255)),
+    [0, 64, 128, 255]
+  );
+});
+
+test('generic HID reads Simulation Controls axes', async () => {
+  const device = genericDevice([
+    item([
+      usage(0x02, 0xc5),
+      usage(0x02, 0xc6)
+    ], 8, 2, { max: 255 })
+  ]);
+  const input = new WebHIDDevice();
+  await input.connect(device);
+
+  assert.equal(input.inputLayout.axes.length, 2);
+  device.oninputreport(report(0, [32, 224]));
+  assert.deepEqual(
+    input.state.axes.map(value => Math.round(value * 255)),
+    [32, 224]
+  );
 });
