@@ -95,7 +95,10 @@ function looksLikeInput(device) {
 }
 
 function sessionForDevice(device) {
-  return manager.sessionList.find(entry => entry.device === device) || null;
+  return manager.sessionList.find(entry =>
+    entry.device === device ||
+    (entry.interfaces || []).includes(device)
+  ) || null;
 }
 
 function loadProfileStore() {

@@ -39,14 +39,19 @@ the generic device and mapping code from this package.
 4. **Demo page** — device list, mapping tabs, FFB test, raw capture and export.
 5. **Apps** — compose independent device sessions; steering source and force output are explicit bindings.
 
-There is one session per physical `HIDDevice`. The demo never opens the same
-device twice.
+There is one session per physical wheel. A wheel that exposes multiple HID
+interfaces, such as the Logitech G Pro or RS50, is grouped into one session with
+an auxiliary force-feedback interface. A unified wheel such as the G923 Xbox
+uses one interface for input and HID++. The demo never opens the same device
+twice.
 
 ## Device topology
 
 | Setup | Example | Sessions |
 | --- | --- | --- |
 | Integrated | G29 | One `WebHIDWheel` provides wheel, pedals and buttons |
+| Unified HID++ | G923 Xbox | One `WebHIDWheel` uses the same interface for input and HID++ |
+| Multi-interface | G Pro, RS50 | One `WebHIDWheel` groups joystick and HID++ interfaces |
 | Split | C5 base + button hub + T3PM adapter | One `WebHIDWheel` plus generic `WebHIDDevice` sessions |
 | Hybrid | C5 base + separate pedals + integrated rim buttons | Mixed |
 

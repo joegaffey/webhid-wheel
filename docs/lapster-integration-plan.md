@@ -1,7 +1,10 @@
 # Package, setup profiles and Lapster integration plan
 
 Status: implemented through 0.4.42 on `feature/core-ui-package` (2026-10-29).
-The dev preview is deployed; hardware acceptance is still pending. Supersedes
+`feature/logitech-g-pro` adds Logitech G923 Xbox, RS50 and G Pro HID++ constant
+force, G923 PlayStation classic force, and multi-interface/unified session
+grouping. The dev preview is deployed; hardware acceptance is still pending.
+Supersedes
 the downloaded `webhid_integration_task_spec.md`. This document is the working
 contract for splitting `webhid-wheel` into a core package and a UI package,
 adding portable setup profiles, and replacing Lapster's vendored copy.
@@ -237,10 +240,12 @@ await manager.disconnect(pedals.id);
 Required members:
 
 - `sessions`: read-only map of session ID to `{ id, name, driver, capabilities,
-  device, hardware, session }`.
+  device, interfaces, hardware, session }`.
 - `sessionList`: array view of sessions.
 - `connect(device?, { driver?, label?, id? })`: opens or requests a device,
-  detects capabilities, and registers a session. Returns the session entry.
+  detects capabilities, and registers a session. `device` may be one
+  `HIDDevice` or an interface array; multi-interface wheels are grouped into one
+  session. Returns the session entry.
 - `state`: `{ sessions, channels, steering, timestamp }`.
 - Steering mapping: `{ device, deadzone, saturation, maxRotation, invert }`.
 - FFB mapping: `{ device, gain, invert }`, where `device` is the selected force

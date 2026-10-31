@@ -294,7 +294,7 @@ export class WebHIDDevicePicker extends WebHIDElement {
       if (!match) {
         const filters = [{ vendorId: hardware.vendorId, productId: hardware.productId }];
         const picked = await navigator.hid.requestDevice({ filters });
-        match = picked[0] || null;
+        match = picked.length ? picked : null;
       }
       if (match) await this.manager.connect(match);
     } catch (error) {

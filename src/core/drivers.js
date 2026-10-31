@@ -2,6 +2,14 @@ import {
   applyAxisCalibration,
   applySteeringCalibration
 } from './calibration.js';
+import { createHidppFfb } from './hidpp-ffb.js';
+import {
+  findHidppInterface,
+  hasAmbiguousInterfaceGroup,
+  isHidppInterface,
+  pickPrimaryInterface,
+  samePhysicalDevice
+} from './hidpp.js';
 
 /////////////////////// Inspired by https://github.com/TheBITLINK/WebHID-DS4
 
@@ -198,6 +206,7 @@ function parseGeneric(data, wheel) {
 const GENERIC_AXIS_IDS = new Set([0x30, 0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38]);
 
 const HAT_DIRECTIONS = ['up', 'up-right', 'right', 'down-right', 'down', 'down-left', 'left', 'up-left'];
+const HIDPP_REPORT_IDS = new Set([0x10, 0x11, 0x12]);
 
 function buildGenericDeviceLayout(device) {
   const layout = { reports: [], axes: [], buttons: [], hats: [] };
@@ -351,7 +360,9 @@ export function detectDeviceCapabilities(device) {
   const name = device.productName || '';
   const gamepadName = /gamepad|game pad|controller|joypad/i.test(name);
   const wheelName = /wheel|racing|steering|force feedback|\bffb\b/i.test(name);
-  const isWheel = !!profile || ffb || (!gamepadName && wheelName);
+  const hasGenericInput = generic.axes.length + generic.buttons.length + generic.hats.length > 0;
+  const hidppOnly = isHidppInterface(device) && !hasGenericInput;
+  const isWheel = !hidppOnly && (!!profile || ffb || (!gamepadName && wheelName));
   return {
     steering: isWheel ? steering : false,
     ffb,
@@ -688,6 +699,41 @@ const defaultProfiles = [
     ffb: createLogitechClassicFfb()
   },
   {
+    name: 'Logitech G923 Racing Wheel (PlayStation/PC)',
+    vendorId: 0x046d,
+    productIds: [0xc266, 0xc267],
+    usagePage: 0x01,
+    maxRotation: 900,
+    ffb: createLogitechClassicFfb()
+  },
+  {
+    name: 'Logitech G923 Racing Wheel (Xbox/PC)',
+    vendorId: 0x046d,
+    productIds: [0xc26d, 0xc26e],
+    usagePage: 0x01,
+    maxRotation: 900,
+    ffbInterface: 'hidpp',
+    ffb: createHidppFfb({ invertForce: true })
+  },
+  {
+    name: 'Logitech RS50 (HID++)',
+    vendorId: 0x046d,
+    productId: 0xc276,
+    usagePage: 0x01,
+    maxRotation: 1080,
+    ffbInterface: 'hidpp',
+    ffb: createHidppFfb()
+  },
+  {
+    name: 'Logitech G Pro Racing Wheel (HID++)',
+    vendorId: 0x046d,
+    productIds: [0xc268, 0xc272],
+    usagePage: 0x01,
+    maxRotation: 1080,
+    ffbInterface: 'hidpp',
+    ffb: createHidppFfb()
+  },
+  {
     name: 'CAMMUS C5',
     vendorId: 0x3416,
     productId: 0x0301,
@@ -721,6 +767,14 @@ const defaultProfiles = [
 const registeredProfiles = defaultProfiles.slice();
 
 function profileMatches(profile, device) {
+  if (profile.usagePage !== undefined) {
+    const collections = device.collections || [];
+    const usageMatches = collections.some(collection =>
+      collection.usagePage === profile.usagePage &&
+      (profile.usage === undefined || collection.usage === profile.usage)
+    );
+    if (!usageMatches) return false;
+  }
   if (profile.vendorId !== undefined && device.vendorId === profile.vendorId) {
     const hasProductId = profile.productId !== undefined;
     const hasProductIds = profile.productIds && profile.productIds.length > 0;
@@ -830,6 +884,8 @@ export class WebHIDWheel {
     this.deadzone = options.deadzone !== undefined ? options.deadzone : 0;
     this.saturation = options.saturation !== undefined ? options.saturation : 1;
     this.invertSteering = options.invertSteering !== undefined ? options.invertSteering : false;
+    this.ffbDevice = null;
+    this.interfaces = [];
     this._listeners = {};
   }
 
@@ -867,18 +923,49 @@ export class WebHIDWheel {
    * Requests (if needed) and opens a wheel, then selects a profile.
    * Must be called from a user gesture (e.g. a click handler).
    */
-  async connect(device) {
+  async _relatedInterfaces(device) {
+    const devices = [device];
+    if (typeof navigator === 'undefined' || !navigator.hid ||
+        typeof navigator.hid.getDevices !== 'function') return devices;
+    try {
+      const granted = await navigator.hid.getDevices();
+      for (const candidate of granted || []) {
+        if (candidate && candidate !== device &&
+            samePhysicalDevice(candidate, device) &&
+            !devices.includes(candidate)) {
+          devices.push(candidate);
+        }
+      }
+    } catch { /* noop */ }
+    if (devices.length > 1 && hasAmbiguousInterfaceGroup(devices, device)) return [device];
+    return devices;
+  }
+
+  async connect(device, options = {}) {
     if (this.isConnected) return this.device;
 
     let dev = device;
+    let interfaces = Array.isArray(options.interfaces) ? options.interfaces.filter(Boolean) : null;
+    if (Array.isArray(dev)) {
+      interfaces = dev.filter(Boolean);
+      dev = null;
+    }
     if (!dev) {
-      if (!navigator.hid.requestDevice) {
-        throw new Error('WebHID requestDevice is not available; pass an authorized device.');
+      if (interfaces) {
+        dev = pickPrimaryInterface(interfaces);
+      } else {
+        if (!navigator.hid.requestDevice) {
+          throw new Error('WebHID requestDevice is not available; pass an authorized device.');
+        }
+        const devices = await navigator.hid.requestDevice({ filters: this.options.filters || [] });
+        interfaces = devices;
+        dev = pickPrimaryInterface(devices);
       }
-      const devices = await navigator.hid.requestDevice({ filters: this.options.filters || [] });
-      dev = devices[0];
     }
     if (!dev) return null;
+
+    if (!interfaces) interfaces = await this._relatedInterfaces(dev);
+    dev = pickPrimaryInterface(interfaces) || dev;
 
     this.device = dev;
     try {
@@ -886,6 +973,8 @@ export class WebHIDWheel {
     } catch (e) {
       if (!dev.opened) { this.emit('error', e); this.device = null; return null; }
     }
+    this.interfaces = [dev];
+    this.ffbDevice = null;
 
     this.name = dev.productName;
     this.signature = deviceSignature(dev);
@@ -894,14 +983,34 @@ export class WebHIDWheel {
     if (this.profile && this.profile.maxRotation !== undefined && this.options.maxRotation === undefined) {
       this.maxRotation = this.profile.maxRotation;
     }
+
+    if (this.profile && this.profile.ffbInterface === 'hidpp') {
+      const siblings = interfaces || await this._relatedInterfaces(dev);
+      const ffbDevice = findHidppInterface(dev, siblings) ||
+        (isHidppInterface(dev) ? dev : null);
+      if (ffbDevice === dev) {
+        this.ffbDevice = dev;
+      } else if (ffbDevice) {
+        try {
+          await ffbDevice.open();
+          this.ffbDevice = ffbDevice;
+          this.interfaces.push(ffbDevice);
+        } catch (e) {
+          this.emit('error', e);
+        }
+      }
+    }
+
     this.layout = buildDescriptorLayout(dev);
     this.inputLayout = buildGenericDeviceLayout(dev);
     this.deviceState = createDeviceState(this.inputLayout);
     this.pidFfb = (this.profile && this.profile.ffb) ? null : buildPidFfb(dev);
     this.parserName = this.profile ? this.profile.name : (this.layout ? 'Generic (HID descriptor)' : null);
 
+    const requiresHidpp = !!(this.profile && this.profile.ffbInterface === 'hidpp');
+    const ffbReady = !requiresHidpp || !!this.ffbDevice;
     const caps = { constant: false, periodic: false, any: false };
-    if (this.profile && this.profile.ffb) {
+    if (this.profile && this.profile.ffb && ffbReady) {
       caps.constant = !!this.profile.ffb.constant;
       caps.periodic = !!this.profile.ffb.periodic;
     } else if (this.pidFfb) {
@@ -917,25 +1026,41 @@ export class WebHIDWheel {
       stop: () => this.stopEffects()
     };
 
-    if (this.profile && this.profile.ffb && this.profile.ffb.init) {
-      try { await this.profile.ffb.init(this.device, this); }
-      catch (e) { this.emit('error', e); }
+    this.device.oninputreport = (report) => this.processWheelReport(report);
+
+    if (this.profile && this.profile.ffb && this.profile.ffb.init && ffbReady) {
+      try { await this.profile.ffb.init(this.ffbDevice || this.device, this); }
+      catch (e) {
+        this.emit('error', e);
+        caps.constant = false;
+        caps.any = caps.constant || caps.periodic;
+      }
     }
 
-    this.device.oninputreport = (report) => this.processWheelReport(report);
     this.emit('connect', this.device);
     return this.device;
   }
 
   async disconnect() {
     const dev = this.device;
+    const ffbDev = this.ffbDevice;
     if (dev) { try { await withTimeout(this.stopEffects()); } catch (e) { /* noop */ } }
+    if (this.profile && this.profile.ffb && this.profile.ffb.dispose) {
+      try { await withTimeout(this.profile.ffb.dispose(ffbDev || dev, this)); }
+      catch (e) { /* noop */ }
+    }
     this.device = null;
+    this.ffbDevice = null;
+    this.interfaces = [];
+    if (ffbDev && ffbDev !== dev && ffbDev.opened) {
+      try { await withTimeout(ffbDev.close()); } catch (e) { /* noop */ }
+    }
     if (dev && dev.opened) { try { await withTimeout(dev.close()); } catch (e) { /* noop */ } }
     if (dev) this.emit('disconnect', dev);
   }
 
   processWheelReport(report) {
+    if (this.ffbDevice === this.device && HIDPP_REPORT_IDS.has(report.reportId)) return;
     const { data } = report;
     this.lastReport = data.buffer;
     this.timestamp = report.timeStamp;
@@ -970,33 +1095,39 @@ export class WebHIDWheel {
 
   async setConstantForce(value) {
     if (!this.device) return;
+    if (this.profile && this.profile.ffbInterface === 'hidpp' && !this.ffbDevice) return;
+    const device = this.ffbDevice || this.device;
     const force = this.ffbInvert ? -value : value;
     if (this.profile && this.profile.ffb && this.profile.ffb.constant)
-      return this.profile.ffb.constant(this.device, force, this);
+      return this.profile.ffb.constant(device, force, this);
     if (this.pidFfb)
-      return this.pidFfb.constant(this.device, force, this);
+      return this.pidFfb.constant(device, force, this);
   }
 
   async setConstantForceFast(value) {
     if (!this.device) return;
+    if (this.profile && this.profile.ffbInterface === 'hidpp' && !this.ffbDevice) return;
+    const device = this.ffbDevice || this.device;
     const force = this.ffbInvert ? -value : value;
     if (this.profile && this.profile.ffb) {
       if (this.profile.ffb.constantFast)
-        return this.profile.ffb.constantFast(this.device, force, this);
+        return this.profile.ffb.constantFast(device, force, this);
       if (this.profile.ffb.constant)
-        return this.profile.ffb.constant(this.device, force, this);
+        return this.profile.ffb.constant(device, force, this);
       return;
     }
     if (this.pidFfb)
-      return this.pidFfb.constantFast(this.device, force, this);
+      return this.pidFfb.constantFast(device, force, this);
   }
 
   async stopEffects() {
     if (!this.device) return;
+    if (this.profile && this.profile.ffbInterface === 'hidpp' && !this.ffbDevice) return;
+    const device = this.ffbDevice || this.device;
     if (this.profile && this.profile.ffb && this.profile.ffb.stop)
-      return this.profile.ffb.stop(this.device);
+      return this.profile.ffb.stop(device, this);
     if (this.pidFfb)
-      return this.pidFfb.stop(this.device);
+      return this.pidFfb.stop(device, this);
   }
 }
 

@@ -145,6 +145,8 @@ export interface WheelFfbProfile {
   constantFast?: (device: HIDDevice, value: number, wheel: WebHIDWheel) => Promise<void>;
   periodic?: (device: HIDDevice, value: number, wheel: WebHIDWheel) => Promise<void>;
   stop?: (device: HIDDevice, wheel: WebHIDWheel) => Promise<void>;
+  /** Optional cleanup before the device interfaces are closed. */
+  dispose?: (device: HIDDevice, wheel: WebHIDWheel) => Promise<void>;
 }
 
 export interface WheelProfile {
@@ -158,6 +160,12 @@ export interface WheelProfile {
   productId?: number;
   /** Optional product IDs matched alongside `vendorId`. */
   productIds?: number[];
+  /** Require a top-level collection with this usage page. */
+  usagePage?: number;
+  /** Require a top-level collection with this usage ID. */
+  usage?: number;
+  /** Optional auxiliary interface required by the force-feedback hooks. */
+  ffbInterface?: 'hidpp';
   /** Default lock-to-lock range for this wheel, unless `maxRotation` is passed to the constructor. */
   maxRotation?: number;
   /** Maps a raw input report onto `wheel` state. */
@@ -203,7 +211,7 @@ export declare class WebHIDWheel {
    * Requests (if no device is passed) and opens a wheel, then selects a profile.
    * Must be called from a user gesture.
    */
-  connect(device?: HIDDevice): Promise<HIDDevice | null>;
+  connect(device?: HIDDevice | HIDDevice[], options?: { interfaces?: HIDDevice[] }): Promise<HIDDevice | null>;
 
   /** Closes the current device. */
   disconnect(): Promise<void>;
@@ -216,6 +224,10 @@ export declare class WebHIDWheel {
 
   /** The currently open HID device, if any. */
   device: HIDDevice | null;
+  /** Auxiliary HID interface used for force feedback, when the wheel has one. */
+  ffbDevice: HIDDevice | null;
+  /** All HID interfaces opened for this wheel session. */
+  interfaces: HIDDevice[];
 
   /** Matched wheel name (from a profile) or the device product name. */
   name?: string;
@@ -459,6 +471,7 @@ export interface WheelManagerSession {
   driver: 'wheel' | 'generic';
   capabilities: DeviceCapabilities;
   device: HIDDevice;
+  interfaces: HIDDevice[];
   hardware: SetupProfileHardware;
   label: string | null;
   session: WebHIDWheel | WebHIDDevice;
@@ -483,7 +496,7 @@ export declare class WheelManager {
   readonly channels: Record<string, number>;
   readonly state: WheelManagerState;
 
-  connect(device?: HIDDevice, options?: { driver?: 'wheel' | 'generic'; label?: string; id?: string }): Promise<WheelManagerSession | null>;
+  connect(device?: HIDDevice | HIDDevice[], options?: { driver?: 'wheel' | 'generic'; label?: string; id?: string }): Promise<WheelManagerSession | null>;
   connectWheel(device?: HIDDevice): Promise<HIDDevice | null>;
   addDevice(roleOrDevice?: string | HIDDevice, device?: HIDDevice): Promise<HIDDevice | null>;
   disconnect(id?: string): Promise<void>;

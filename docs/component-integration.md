@@ -355,6 +355,17 @@ connectButton.addEventListener('click', async () => {
 Do not construct `WebHIDWheel` at server-render time; its constructor checks
 `navigator.hid`. `WheelManager` construction is the DOM-free path.
 
+Some wheels expose input and force feedback on separate HID interfaces, such as
+the Logitech G Pro and RS50; others use one unified interface, such as the G923
+Xbox. `manager.connect()` and `WebHIDWheel.connect()` accept either one
+`HIDDevice` or an interface array. When given one interface they look up
+already-authorized sibling interfaces with `getDevices()` and group them into a
+single session. Do not call `connect()` once per interface; that creates
+duplicate sessions. A wheel session exposes `session.interfaces` and
+`session.session.ffbDevice` for the force-feedback interface (which may be the
+primary device for unified wheels), and setup profiles keep matching the primary
+input interface.
+
 ## 12. Framework integration
 
 Custom elements use DOM properties, not framework props.

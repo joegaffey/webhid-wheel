@@ -119,6 +119,12 @@ if (match.status === 'matched') {
 }
 ```
 
+Some wheels expose input and force feedback on separate HID interfaces. The
+Logitech G Pro uses a joystick interface plus a HID++ interface. `connect()`
+accepts either one `HIDDevice` or an interface array and groups the interfaces
+into one session; `session.interfaces` lists them and `wheel.ffbDevice` is the
+auxiliary force-feedback interface.
+
 Profiles use the multi-device v2 schema: a device list with hardware
 descriptors, plus steering/FFB/axis/button bindings that reference device
 aliases. V1 single-device profiles are migrated on import.
@@ -180,6 +186,10 @@ WebHIDWheel.registerProfile({
 | Thrustmaster T300RS | steering, buttons | — | No |
 | Logitech G29 (`c24f`, `c260`) | steering, buttons, axes | constant force (classic Logitech) | No |
 | Logitech Driving Force GT | steering, buttons | constant force (classic Logitech) | No |
+| Logitech G923 PlayStation/PC (`c266`, `c267`) | steering, buttons, axes | constant force (classic Logitech) | No |
+| Logitech G923 Xbox/PC (`c26d`, `c26e`) | steering, buttons, axes | constant force (HID++ `0x8123`) | No |
+| Logitech RS50 (`c276`) | steering, buttons, axes | constant force (HID++ `0x8123`) | No |
+| Logitech G Pro Racing Wheel (`c268`, `c272`) | steering, buttons, axes | constant force (HID++ `0x8123`) | No |
 | CAMMUS C5 | steering, buttons, axes | constant force (USB-PID) | **Yes** (Windows 11, Chrome) |
 | CAMMUS C12 | steering, buttons, axes | constant force (USB-PID) | No |
 | FFBeast | steering | constant force | **Yes** (Windows 11, Chrome) |
@@ -191,7 +201,7 @@ Windows 11 with Chrome. Other rows are implemented or expected but have not
 been hardware-verified. If force pulls the wrong way, tick **Invert Force**
 in the demo or set `ffbInvert: true`.
 
-G29 and Driving Force GT use Logitech's classic force-feedback protocol. G920, G923 Xbox and Fanatec wheels still need separate profiles; see [Logitech, Thrustmaster and Fanatec FFB workarounds](./docs/vendor-ffb-workarounds.md).
+G29, Driving Force GT and the G923 PlayStation edition use Logitech's classic force-feedback protocol. The G923 Xbox edition, RS50 and G Pro use Logitech HID++ feature `0x8123`. HID++ wheels may expose input and FFB on separate HID interfaces or on one unified interface; the library groups them into one session either way. RS50 and G Pro also work in G923 compatibility mode via the G923 HID++ profile. G920 and Fanatec wheels still need separate profiles; see [Logitech, Thrustmaster and Fanatec FFB workarounds](./docs/vendor-ffb-workarounds.md).
 
 The T248 exposes force feedback on a vendor report that WebHID cannot send. On Windows, PadForge can expose a virtual HID-PID wheel and forward its force feedback to the T248. The same bridge pattern works for other native-FFB wheels PadForge can drive; see [PadForge wheel bridge for WebHID](./docs/padforge-wheel-bridge.md).
 

@@ -7,6 +7,11 @@ import {
 } from './drivers.js';
 import { clamp } from './calibration.js';
 import {
+  hasAmbiguousInterfaceGroup,
+  pickPrimaryInterface,
+  samePhysicalDevice
+} from './hidpp.js';
+import {
   PROFILE_KIND,
   PROFILE_SCHEMA_VERSION,
   validateProfile,
@@ -183,6 +188,31 @@ export class WheelManager {
     return id;
   }
 
+  async _resolveInterfaces(device) {
+    if (Array.isArray(device)) {
+      const interfaces = device.filter(Boolean);
+      return { primary: pickPrimaryInterface(interfaces), interfaces };
+    }
+    const interfaces = [device];
+    if (typeof navigator !== 'undefined' && navigator.hid &&
+        typeof navigator.hid.getDevices === 'function') {
+      try {
+        const granted = await navigator.hid.getDevices();
+        for (const candidate of granted || []) {
+          if (candidate && candidate !== device &&
+              samePhysicalDevice(candidate, device) &&
+              !interfaces.includes(candidate)) {
+            interfaces.push(candidate);
+          }
+        }
+      } catch { /* noop */ }
+    }
+    if (interfaces.length > 1 && hasAmbiguousInterfaceGroup(interfaces, device)) {
+      return { primary: device, interfaces: [device] };
+    }
+    return { primary: pickPrimaryInterface(interfaces) || device, interfaces };
+  }
+
   _attach(id, metadata, instance) {
     const entry = {
       id,
@@ -190,6 +220,7 @@ export class WheelManager {
       driver: metadata.driver,
       capabilities: metadata.capabilities,
       device: metadata.device,
+      interfaces: [metadata.device],
       hardware: metadata.hardware,
       label: metadata.label || null,
       session: instance
@@ -242,18 +273,30 @@ export class WheelManager {
       throw new Error('WebHID not supported by browser or not available.');
     }
     let dev = device;
+    let interfaces = null;
     if (!dev) {
       if (!navigator.hid.requestDevice) {
         throw new Error('WebHID requestDevice is not available; pass an authorized device.');
       }
       const devices = await navigator.hid.requestDevice({ filters: this.options.filters || [] });
-      dev = devices[0];
+      const resolved = await this._resolveInterfaces(devices);
+      dev = resolved.primary;
+      interfaces = resolved.interfaces;
+    } else {
+      const resolved = await this._resolveInterfaces(dev);
+      dev = resolved.primary;
+      interfaces = resolved.interfaces;
     }
     if (!dev) return null;
+    if (!interfaces) interfaces = [dev];
 
     const signature = deviceSignature(dev);
     const existing = this.sessionList.find(entry =>
       entry.device === dev ||
+      (entry.interfaces || []).includes(dev) ||
+      interfaces.some(item =>
+        entry.device === item || (entry.interfaces || []).includes(item)
+      ) ||
       (!entry.session.isConnected &&
         entry.hardware &&
         entry.hardware.vendorId === dev.vendorId &&
@@ -262,17 +305,18 @@ export class WheelManager {
     );
     if (existing) {
       if (!existing.session.isConnected) {
-        const connected = await existing.session.connect(dev);
+        const connected = await existing.session.connect(dev, { interfaces });
         if (!connected) return null;
-        existing.device = dev;
-        existing.name = existing.label || existing.session.name || dev.productName || existing.id;
-        existing.hardware = this._hardwareFor(dev, existing.session);
+        existing.device = existing.session.device || dev;
+        existing.interfaces = (existing.session.interfaces || interfaces).slice();
+        existing.name = existing.label || existing.session.name || existing.device.productName || existing.id;
+        existing.hardware = this._hardwareFor(existing.device, existing.session);
         existing.capabilities = this._capabilitiesFor(existing);
         this._applySteeringSettings();
         this._applyFfbSettings();
         if (this._profile && this._missingAliases.length) this.applySetup(this._profile);
         else this._ensureDefaultBindings(existing);
-        this.emit('connect', { session: existing, device: dev });
+        this.emit('connect', { session: existing, device: existing.device });
       }
       this._recomputeChannels();
       return existing;
@@ -300,7 +344,7 @@ export class WheelManager {
 
     let connected = null;
     try {
-      connected = await instance.connect(dev);
+      connected = await instance.connect(dev, { interfaces });
     } catch (error) {
       this._sessions.delete(id);
       throw error;
@@ -310,8 +354,10 @@ export class WheelManager {
       return null;
     }
 
-    entry.name = options.label || instance.name || dev.productName || id;
-    entry.hardware = this._hardwareFor(dev, instance);
+    entry.device = instance.device || dev;
+    entry.interfaces = (instance.interfaces || interfaces).slice();
+    entry.name = options.label || instance.name || entry.device.productName || id;
+    entry.hardware = this._hardwareFor(entry.device, instance);
     entry.capabilities = this._capabilitiesFor(entry);
     this._applySteeringSettings();
     this._applyFfbSettings();
@@ -323,7 +369,7 @@ export class WheelManager {
     }
 
     this._recomputeChannels();
-    this.emit('connect', { session: entry, device: dev });
+    this.emit('connect', { session: entry, device: entry.device });
     return entry;
   }
 
