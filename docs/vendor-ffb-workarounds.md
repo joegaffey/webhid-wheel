@@ -1,6 +1,6 @@
 # Logitech, Thrustmaster and Fanatec FFB workarounds
 
-Status: classic Logitech constant force is implemented for G29, Driving Force GT and G923 PlayStation, and HID++ `0x8123` constant force is implemented for G923 Xbox, RS50 and G Pro. The RS50 is partially hardware-verified: single constant force and manual `START=0` updates work. G Pro, G923 and the classic Logitech paths remain unverified. Only CAMMUS C5 and FFBeast are fully hardware-verified. T248 direct WebHID is blocked on Windows; the PadForge bridge is documented in [PadForge wheel bridge for WebHID](./padforge-wheel-bridge.md). Fanatec remains a research note.
+Status: classic Logitech constant force is implemented for G25, G27, G29, MOMO, Driving Force GT, Driving Force Pro and G923 PlayStation, and HID++ `0x8123` constant force is implemented for G923 Xbox, RS50 and G Pro. The RS50 is partially hardware-verified: single constant force and manual `START=0` updates work. G Pro, G923 and the classic Logitech paths remain unverified. Only CAMMUS C5 and FFBeast are fully hardware-verified. T248 direct WebHID is blocked on Windows; the PadForge bridge is documented in [PadForge wheel bridge for WebHID](./padforge-wheel-bridge.md). Fanatec remains a research note.
 
 This document records what would be needed to support force feedback for Logitech, Thrustmaster and Fanatec wheelbases over WebHID. These vendors do not expose the standard USB HID PID path that CAMMUS and Moza expose, so the generic PID implementation will not provide FFB for them.
 
@@ -8,7 +8,7 @@ This document records what would be needed to support force feedback for Logitec
 
 | Vendor / family | Input | FFB | Work required |
 | --- | --- | --- | --- |
-| Logitech G25/G27/G29/DFGT/MOMO/DFP | Generic likely | Vendor FF protocol | G29/DFGT implemented but unverified; G25/G27/MOMO/DFP need a profile |
+| Logitech G25/G27/G29/DFGT/MOMO/DFP | Generic likely | Vendor FF protocol | Implemented but unverified; no compatibility-mode switching |
 | Logitech G923 PS (`c266`, `c267`) | Generic likely | Vendor FF protocol + TrueForce | Implemented with the classic path; TrueForce extra |
 | Logitech G923 Xbox (`c26d`, `c26e`) | Generic likely | HID++ `0x8123` | Implemented, not hardware-verified; unified input/HID++ interface |
 | Logitech RS50 (`c276`, `c272` compat) | Generic likely | HID++ `0x8123` + interface-2 TrueForce stream | Implemented; single force and `START=0` updates verified, stop/resume unresolved |
@@ -32,23 +32,36 @@ The current Windows workaround is to run PadForge with its HIDMaestro virtual HI
 
 On Linux, `hid-tmff2` can rewrite the descriptor to expose report `0x60`, which may make direct WebHID possible. That path has not yet been verified on hardware.
 
-## Implemented, not hardware-verified: G29, Driving Force GT and G923 PS
+## Implemented, not hardware-verified: classic Logitech wheels
 
 The classic Logitech path is implemented for these wheels, but has not been
 verified on hardware:
 
+- Logitech G25 (`046d:c299`)
+- Logitech G27 (`046d:c29b`)
 - Logitech G29 (`046d:c24f`, `046d:c260`)
+- Logitech MOMO (`046d:c295`, `046d:ca03`)
 - Logitech Driving Force GT (`046d:c29a`)
+- Logitech Driving Force Pro (`046d:c298`)
 - Logitech G923 PlayStation/PC (`046d:c266`; `046d:c267` switches to PC mode)
 
-On connect, the profile disables autocenter and sets the hardware range (clamped to 40–900°). Constant force uses the classic Download-and-Play report with one force byte, so `constantFast()` needs only one report per update. Stop sends the classic Stop Force command.
+G25, G27, MOMO and Driving Force Pro currently use the generic HID input
+parser; their descriptors have not been captured on hardware. The remaining
+wheels keep their existing input paths.
+
+On connect, the profile disables autocenter and sets the hardware range where
+the wheel supports it (clamped to 40–900°). Constant force uses the classic
+Download-and-Play report with one force byte, so `constantFast()` needs only
+one report per update. Stop sends the classic Stop Force command.
 
 Implementation notes:
 
 - Payloads are 7 bytes on report ID `0`.
 - Constant force: `11 00 <level> 00 00 00 00`, where level 0 is full clockwise, 128 is neutral and 255 is full counter-clockwise.
 - Stop force: `13 00 00 00 00 00 00`.
-- Range: `f8 81 <lo> <hi> 00 00 00`.
+- Range for G25/G27/G29/DFGT: `f8 81 <lo> <hi> 00 00 00`.
+- Range for Driving Force Pro: coarse `f8 03` or `f8 02`, then fine `81 0b ...`.
+- MOMO has a fixed 270° range: no range command is sent.
 - Autocenter off: `f5 00 00 00 00 00 00`.
 - Do not use the compatibility-mode-switch commands during normal operation; they can detach and re-enumerate the wheel with a different product ID.
 - G920 and G923 Xbox use HID++; G923 Xbox is covered by the next section.
@@ -109,7 +122,7 @@ is covered by the classic profile instead.
 
 ### Older FF protocol
 
-Models such as the Driving Force GT, G25, G27, G29, and G923 PS edition use Logitech's force-feedback protocol. The public protocol document is:
+Models such as the Driving Force GT/Pro, G25, G27, G29, MOMO, and G923 PS edition use Logitech's force-feedback protocol. The public protocol document is:
 
 - [Logitech Force Feedback Protocol v1.6](https://opensource.logitech.com/wiki/force_feedback/Logitech_Force_Feedback_Protocol_V1.6.pdf)
 
@@ -198,7 +211,7 @@ These workarounds need small additions to the library/profile model:
 
 ## Suggested order
 
-1. Hardware-verify the implemented G923 Xbox, RS50 and G Pro HID++ path, plus the classic G923 PS/G29/DFGT path.
+1. Hardware-verify the implemented G923 Xbox, RS50 and G Pro HID++ path, plus the classic G25/G27/G29/MOMO/DFGT/DFP/G923 PS path.
 2. Fanatec CSL DD/DD Pro constant force using `hid-fanatecff` as a reference.
 3. G920 `0x8123` using the same HID++ transport, with periodic-refresh testing.
 4. Additional Logitech models and Fanatec families.

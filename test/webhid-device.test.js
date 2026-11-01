@@ -14,7 +14,9 @@ function item(usages, reportSize, reportCount = 1, options = {}) {
     logicalMinimum: options.min ?? 0,
     logicalMaximum: options.max ?? (1 << reportSize) - 1,
     isConstant: !!options.constant,
-    isRange: !!options.range
+    isRange: !!options.range,
+    usageMinimum: options.usageMinimum,
+    usageMaximum: options.usageMaximum
   };
 }
 
@@ -196,4 +198,71 @@ test('generic HID reads Simulation Controls axes', async () => {
     input.state.axes.map(value => Math.round(value * 255)),
     [32, 224]
   );
+});
+
+test('generic HID reads reports from nested collections after top-level reports', async () => {
+  const device = new FakeDevice();
+  device.collections = [{
+    usagePage: 0x01,
+    usage: 0x04,
+    inputReports: [{
+      reportId: 1,
+      items: [item([usage(0x01, 0x30)], 8, 1, { max: 255 })]
+    }],
+    outputReports: [],
+    featureReports: [],
+    children: [{
+      usagePage: 0x01,
+      usage: 0x05,
+      inputReports: [{
+        reportId: 2,
+        items: [item([usage(0x01, 0x31)], 8, 1, { max: 255 })]
+      }],
+      outputReports: [],
+      featureReports: []
+    }]
+  }];
+  const input = new WebHIDDevice();
+  await input.connect(device);
+
+  assert.equal(input.inputLayout.axes.length, 2);
+  assert.deepEqual(input.inputLayout.axes.map(axis => axis.reportId), [1, 2]);
+
+  device.oninputreport(report(1, [0x80]));
+  device.oninputreport(report(2, [0xff]));
+  assert.deepEqual(input.state.axes, [128 / 255, 1]);
+});
+
+test('generic HID expands ranged axis and button usages', async () => {
+  const device = genericDevice([
+    item([], 8, 4, {
+      max: 255,
+      range: true,
+      usageMinimum: usage(0x01, 0x30),
+      usageMaximum: usage(0x01, 0x33)
+    }),
+    item([], 1, 4, {
+      max: 1,
+      range: true,
+      usageMinimum: usage(0x09, 0x01),
+      usageMaximum: usage(0x09, 0x04)
+    })
+  ]);
+  const input = new WebHIDDevice();
+  await input.connect(device);
+
+  assert.equal(input.inputLayout.axes.length, 4);
+  assert.equal(input.inputLayout.buttons.length, 4);
+  assert.deepEqual(input.inputLayout.axes.map(axis => axis.usage), [
+    usage(0x01, 0x30),
+    usage(0x01, 0x31),
+    usage(0x01, 0x32),
+    usage(0x01, 0x33)
+  ]);
+  assert.deepEqual(input.inputLayout.buttons.map(button => button.usage), [
+    usage(0x09, 0x01),
+    usage(0x09, 0x02),
+    usage(0x09, 0x03),
+    usage(0x09, 0x04)
+  ]);
 });

@@ -118,6 +118,61 @@ test('Driving Force GT uses the classic Logitech force path', async () => {
   assert.deepEqual(bytes(device.sent[0]), [0x11, 0x00, 128, 0, 0, 0, 0]);
 });
 
+test('G25 and G27 use the G25 range command', async () => {
+  for (const [productId, name] of [
+    [0xc299, 'G25 Racing Wheel'],
+    [0xc29b, 'G27 Racing Wheel']
+  ]) {
+    const { wheel, device } = await connectWheel(productId, name);
+
+    assert.equal(wheel.profile.name, `Logitech ${name}`);
+    assert.equal(wheel.maxRotation, 900);
+    assert.equal(wheel.ffbCaps.constant, true);
+    assert.deepEqual(device.sent.map(report => report.reportId), [0, 0]);
+    assert.deepEqual(bytes(device.sent[0]), [0xf5, 0, 0, 0, 0, 0, 0]);
+    assert.deepEqual(bytes(device.sent[1]), [0xf8, 0x81, 0x84, 0x03, 0, 0, 0]);
+
+    device.sent.length = 0;
+    await wheel.setConstantForceFast(0.5);
+    assert.deepEqual(bytes(device.sent[0]), [0x11, 0x00, 143, 0, 0, 0, 0]);
+  }
+});
+
+test('MOMO profiles use a fixed 270 degree range and send no range command', async () => {
+  for (const productId of [0xc295, 0xca03]) {
+    const { wheel, device } = await connectWheel(productId, 'MOMO Racing Wheel', { ffbStrength: 1 });
+
+    assert.equal(wheel.profile.name, 'Logitech MOMO Racing Wheel');
+    assert.equal(wheel.maxRotation, 270);
+    assert.equal(wheel.ffbCaps.constant, true);
+    assert.deepEqual(device.sent.map(report => report.reportId), [0]);
+    assert.deepEqual(bytes(device.sent[0]), [0xf5, 0, 0, 0, 0, 0, 0]);
+
+    device.sent.length = 0;
+    await wheel.setConstantForceFast(-0.5);
+    assert.deepEqual(bytes(device.sent[0]), [0x11, 0x00, 64, 0, 0, 0, 0]);
+  }
+});
+
+test('Driving Force Pro uses the DFP range commands', async () => {
+  const full = await connectWheel(0xc298, 'Driving Force Pro');
+
+  assert.equal(full.wheel.profile.name, 'Logitech Driving Force Pro');
+  assert.equal(full.wheel.maxRotation, 900);
+  assert.deepEqual(full.device.sent.map(report => report.reportId), [0, 0, 0]);
+  assert.deepEqual(bytes(full.device.sent[0]), [0xf5, 0, 0, 0, 0, 0, 0]);
+  assert.deepEqual(bytes(full.device.sent[1]), [0xf8, 0x03, 0, 0, 0, 0, 0]);
+  assert.deepEqual(bytes(full.device.sent[2]), [0x81, 0x0b, 0, 0, 0, 0, 0]);
+
+  const limited = await connectWheel(0xc298, 'Driving Force Pro', { maxRotation: 450 });
+  assert.deepEqual(bytes(limited.device.sent[1]), [0xf8, 0x03, 0, 0, 0, 0, 0]);
+  assert.deepEqual(bytes(limited.device.sent[2]), [0x81, 0x0b, 0x40, 0xbf, 0xff, 0xe0, 0xff]);
+
+  const short = await connectWheel(0xc298, 'Driving Force Pro', { maxRotation: 200 });
+  assert.deepEqual(bytes(short.device.sent[1]), [0xf8, 0x02, 0, 0, 0, 0, 0]);
+  assert.deepEqual(bytes(short.device.sent[2]), [0x81, 0x0b, 0, 0, 0, 0, 0]);
+});
+
 test('G920 is not captured by the G29 product IDs', async () => {
   const { wheel, device } = await connectWheel(0xc262, 'Logitech G920 Driving Force Racing Wheel');
 
