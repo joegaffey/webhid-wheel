@@ -25,6 +25,39 @@ function makeDescriptor(options = {}) {
     ? item([usage(0x0f, 0x70)], 8, 1, 0, 255)
     : item([usage(0x0f, 0x70)], 16, 1, -10000, 10000);
 
+  const opUsages = options.reverseUsages
+    ? [usage(0x0f, 0x7b), usage(0x0f, 0x7a), usage(0x0f, 0x79)]
+    : [usage(0x0f, 0x79), usage(0x0f, 0x7a), usage(0x0f, 0x7b)];
+  const controlUsages = options.reverseUsages
+    ? [usage(0x0f, 0x9c), usage(0x0f, 0x9b), usage(0x0f, 0x9a),
+       usage(0x0f, 0x99), usage(0x0f, 0x98), usage(0x0f, 0x97)]
+    : [usage(0x0f, 0x97), usage(0x0f, 0x98), usage(0x0f, 0x99),
+       usage(0x0f, 0x9a), usage(0x0f, 0x9b), usage(0x0f, 0x9c)];
+
+  const outputReports = [
+    { reportId: 0x11, items: setEffect },
+    {
+      reportId: 0x12,
+      items: [
+        item([usage(0x0f, 0x22)], 8),
+        magnitude
+      ]
+    },
+    {
+      reportId: 0x13,
+      items: [
+        item([usage(0x0f, 0x22)], 8),
+        item(opUsages, 8)
+      ]
+    }
+  ];
+  if (options.control) {
+    outputReports.push({
+      reportId: 0x14,
+      items: [{ ...item(controlUsages, 8), isArray: true }]
+    });
+  }
+
   return [{
     usagePage: 0x01,
     usage: 0x04,
@@ -32,23 +65,7 @@ function makeDescriptor(options = {}) {
       reportId: 0x01,
       items: [item([usage(0x01, 0x30)], 16, 1, 0, 65535)]
     }],
-    outputReports: [
-      { reportId: 0x11, items: setEffect },
-      {
-        reportId: 0x12,
-        items: [
-          item([usage(0x0f, 0x22)], 8),
-          magnitude
-        ]
-      },
-      {
-        reportId: 0x13,
-        items: [
-          item([usage(0x0f, 0x22)], 8),
-          item([usage(0x0f, 0x79), usage(0x0f, 0x7a), usage(0x0f, 0x7b)], 8)
-        ]
-      }
-    ],
+    outputReports,
     featureReports: options.featureBlock ? [
       {
         reportId: 0x0c,
@@ -306,4 +323,49 @@ test('unsigned magnitude ranges are centered and encoded across their span', asy
   await wheel.stopEffects();
   assert.deepEqual(reportIds(device), [0x13, 0x12]);
   assert.equal(readBits(device.sent[1].data, 8, 8), 128);
+});
+
+test('reversed Chromium usage order sends Start on apply and Stop on stop', async () => {
+  const { wheel, device } = await setup({}, makeDescriptor({ reverseUsages: true }));
+
+  await wheel.setConstantForceFast(0.4);
+  const start = device.sent.find(report => report.reportId === 0x13);
+  assert.equal(readBits(start.data, 8, 8), 1);
+
+  device.sent.length = 0;
+  await wheel.stopEffects();
+  const stop = device.sent.find(report => report.reportId === 0x13);
+  assert.equal(readBits(stop.data, 8, 8), 3);
+  assert.equal(wheel.pidFfb.info.constantType, 1);
+  assert.deepEqual(wheel.pidFfb.info.typeCandidates, [1]);
+});
+
+test('reversed Chromium usage order sends Reset, StopAll and Enable on init', async () => {
+  const { wheel, device } = await setup({},
+    makeDescriptor({ reverseUsages: true, control: true }));
+
+  await wheel.setConstantForceFast(0.4);
+  const controls = device.sent
+    .filter(report => report.reportId === 0x14)
+    .map(report => readBits(report.data, 0, 8));
+
+  assert.deepEqual(controls, [4, 3, 1]);
+});
+
+test('ascending usage order keeps canonical Start, Stop and device controls', async () => {
+  const { wheel, device } = await setup({}, makeDescriptor({ control: true }));
+
+  await wheel.setConstantForceFast(0.4);
+  const controls = device.sent
+    .filter(report => report.reportId === 0x14)
+    .map(report => readBits(report.data, 0, 8));
+  assert.deepEqual(controls, [4, 3, 1]);
+
+  const start = device.sent.find(report => report.reportId === 0x13);
+  assert.equal(readBits(start.data, 8, 8), 1);
+
+  device.sent.length = 0;
+  await wheel.stopEffects();
+  const stop = device.sent.find(report => report.reportId === 0x13);
+  assert.equal(readBits(stop.data, 8, 8), 3);
 });

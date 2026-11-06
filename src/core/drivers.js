@@ -496,7 +496,9 @@ function buildPidFfb(device) {
 
   const usageIndex = (field, id, fallback) => {
     if (!field) return fallback;
-    const index = field.uids.findIndex(u => u.page === 0x0f && u.id === id);
+    const sorted = [...field.uids].sort(
+      (a, b) => (a.page - b.page) || (a.id - b.id));
+    const index = sorted.findIndex(u => u.page === 0x0f && u.id === id);
     return index >= 0 ? index + 1 : fallback;
   };
 
