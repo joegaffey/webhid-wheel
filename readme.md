@@ -27,7 +27,7 @@ Mappings, profile settings and metadata persist in localStorage. Raw capture dat
 
 The library does not poll the Gamepad API or capture keyboard/touch input. Those remain app-level fallbacks; the planned unified mapper is described in the [integration plan](./docs/lapster-integration-plan.md#15-follow-up-unified-input-mapper).
 
-See [Device Config page and optional rigs](./docs/device-config-and-rigs.md) for the data model and [PadForge wheel bridge](./docs/padforge-wheel-bridge.md) for the Windows vendor-wheel workaround.
+See [Device Config page and optional rigs](./docs/device-config-and-rigs.md) for the data model. For Windows wheels that need a virtual PID bridge, use the [PIDAL wheel bridge](./docs/pidal-wheel-bridge.md) (recommended); the [PadForge bridge](./docs/padforge-wheel-bridge.md) remains an alternative.
 
 ## Library
 
@@ -182,7 +182,7 @@ WebHIDWheel.registerProfile({
 
 | Wheel | Input | FFB | Verified |
 | --- | --- | --- | --- |
-| Thrustmaster T248 | steering, buttons, axes (generic) | — direct WebHID; [PadForge bridge](./docs/padforge-wheel-bridge.md) on Windows | No |
+| Thrustmaster T248 | steering, buttons, axes (generic) | — direct WebHID; constant force via [PIDAL](./docs/pidal-wheel-bridge.md) on Windows ([PadForge](./docs/padforge-wheel-bridge.md) alternative) | No |
 | Thrustmaster T300RS | steering, buttons | — | No |
 | Logitech G25 (`c299`) | steering, buttons, axes (generic) | constant force (classic Logitech) | No |
 | Logitech G27 (`c29b`) | steering, buttons, axes (generic) | constant force (classic Logitech) | No |
@@ -208,7 +208,7 @@ wrong way, tick **Invert Force** in the demo or set `ffbInvert: true`.
 
 G25, G27, G29, MOMO, Driving Force GT, Driving Force Pro and the G923 PlayStation edition use Logitech's classic force-feedback protocol. The G923 Xbox edition, RS50 and G Pro use Logitech HID++ feature `0x8123`. HID++ wheels may expose input and FFB on separate HID interfaces or on one unified interface; the library groups them into one session either way. RS50 and G Pro also work in G923 compatibility mode via the G923 HID++ profile. G25, G27, MOMO and Driving Force Pro currently rely on generic HID input parsing and have not been hardware-verified. G920 and Fanatec wheels still need separate profiles; see [Logitech, Thrustmaster and Fanatec FFB workarounds](./docs/vendor-ffb-workarounds.md).
 
-The T248 exposes force feedback on a vendor report that WebHID cannot send. On Windows, PadForge can expose a virtual HID-PID wheel and forward its force feedback to the T248. The same bridge pattern works for other native-FFB wheels PadForge can drive; see [PadForge wheel bridge for WebHID](./docs/padforge-wheel-bridge.md).
+The T248 exposes force feedback on a vendor report that WebHID cannot send. On Windows, [PIDAL](./docs/pidal-wheel-bridge.md) is the recommended workaround: it exposes a virtual HID-PID wheel and drives the physical wheel through DirectInput. The same bridge pattern works for other wheels with a DirectInput constant-force path. [PadForge](./docs/padforge-wheel-bridge.md) remains an alternative, especially when it is already part of the rig or is needed for its broader input mapping.
 
 Got an unsupported wheel? Open the demo, add it, open **Diagnostics** in the device panel, click **Record all inputs**, turn full-lock and press every button, then click **Stop recording** and use **Copy diagnostic JSON** or **Download JSON** to attach the capture.
 

@@ -1,6 +1,6 @@
 # PadForge wheel bridge for WebHID
 
-Status: research and configuration notes. Last updated 2026-10-28.
+Status: alternative Windows workaround. The [PIDAL bridge](./pidal-wheel-bridge.md) is the recommended option; use PadForge when it is already part of the rig or its device support and input mapping fit better. Last updated 2026-10-28.
 
 Some force-feedback wheels expose a vendor report that WebHID cannot address, or
 require a report ID that is not present in the descriptor shown to the browser.

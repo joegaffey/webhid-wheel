@@ -13,8 +13,9 @@ Related documents:
 - [Package, setup profiles and Lapster integration plan](./lapster-integration-plan.md)
   — design history and the current consumer migration.
 - [HID device mapping and capture](./device-config-and-rigs.md) — data model.
-- [FFB workarounds](./vendor-ffb-workarounds.md) and
-  [PadForge bridge](./padforge-wheel-bridge.md) — unsupported wheels.
+- [FFB workarounds](./vendor-ffb-workarounds.md) — unsupported vendor wheels.
+- [PIDAL wheel bridge](./pidal-wheel-bridge.md) — recommended Windows bridge.
+- [PadForge bridge](./padforge-wheel-bridge.md) — alternative Windows bridge.
 
 ## 1. What you get
 

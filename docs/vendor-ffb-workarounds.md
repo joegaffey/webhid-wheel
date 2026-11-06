@@ -1,6 +1,6 @@
 # Logitech, Thrustmaster and Fanatec FFB workarounds
 
-Status: classic Logitech constant force is implemented for G25, G27, G29, MOMO, Driving Force GT, Driving Force Pro and G923 PlayStation, and HID++ `0x8123` constant force is implemented for G923 Xbox, RS50 and G Pro. The RS50 is partially hardware-verified: single constant force and manual `START=0` updates work. G Pro, G923 and the classic Logitech paths remain unverified. Only CAMMUS C5 and FFBeast are fully hardware-verified. T248 direct WebHID is blocked on Windows; the PadForge bridge is documented in [PadForge wheel bridge for WebHID](./padforge-wheel-bridge.md). Fanatec remains a research note.
+Status: classic Logitech constant force is implemented for G25, G27, G29, MOMO, Driving Force GT, Driving Force Pro and G923 PlayStation, and HID++ `0x8123` constant force is implemented for G923 Xbox, RS50 and G Pro. The RS50 is partially hardware-verified: single constant force and manual `START=0` updates work. G Pro, G923 and the classic Logitech paths remain unverified. Only CAMMUS C5 and FFBeast are fully hardware-verified. T248 direct WebHID is blocked on Windows; the recommended Windows workaround is the [PIDAL bridge](./pidal-wheel-bridge.md), with the [PadForge bridge](./padforge-wheel-bridge.md) as an alternative. Fanatec remains a research note.
 
 This document records what would be needed to support force feedback for Logitech, Thrustmaster and Fanatec wheelbases over WebHID. These vendors do not expose the standard USB HID PID path that CAMMUS and Moza expose, so the generic PID implementation will not provide FFB for them.
 
@@ -14,10 +14,10 @@ This document records what would be needed to support force feedback for Logitec
 | Logitech RS50 (`c276`, `c272` compat) | Generic likely | HID++ `0x8123` + interface-2 TrueForce stream | Implemented; single force and `START=0` updates verified, stop/resume unresolved |
 | Logitech G920 (`c262`) | Generic likely | HID++ `0x8123` | Can reuse the HID++ transport; not enabled yet |
 | Logitech G Pro (`c268`, `c272`) | Generic likely | HID++ `0x8123` + interface-2 TrueForce stream | Implemented, not hardware-verified |
-| Thrustmaster T248 | Generic | Vendor protocol, report `0x60` | Blocked in WebHID on Windows; use the PadForge bridge or Linux `hid-tmff2` |
+| Thrustmaster T248 | Generic | Vendor protocol, report `0x60` | Blocked in WebHID on Windows; use the [PIDAL bridge](./pidal-wheel-bridge.md) (recommended), [PadForge](./padforge-wheel-bridge.md) as an alternative, or Linux `hid-tmff2` |
 | Fanatec CSL/DD/Podium/CSR | Generic or fixed-offset | Vendor protocol | Custom FFB profile ported from `hid-fanatecff` |
 
-The common workaround is a per-device `ffb` profile with `init`, `constant`, and `stop` hooks that speak the vendor protocol directly. The generic USB-PID path should not be used for these devices.
+The common workaround is a per-device `ffb` profile with `init`, `constant`, and `stop` hooks that speak the vendor protocol directly. The generic USB-PID path should not be used for these devices. When a native profile is not available, the recommended Windows bridge is [PIDAL](./pidal-wheel-bridge.md), which exposes a standard PID device and drives the physical wheel through DirectInput. The [PadForge bridge](./padforge-wheel-bridge.md) remains an alternative for rigs that already use PadForge or need its broader input mapping. Both bridges rely on HIDMaestro and can coexist, but only one process can acquire a given physical wheel at a time.
 
 ## Thrustmaster T248
 
@@ -28,7 +28,7 @@ Direct T248 FFB over WebHID does not work on Windows:
 - The real force channel is report `0x60`, a 64-byte interrupt-OUT frame. WebHID rejects `0x60` and report `0`.
 - The T248 open command sent through the exposed reports resets/re-enumerates the wheel.
 
-The current Windows workaround is to run PadForge with its HIDMaestro virtual HID-PID wheel and let PadForge drive the T248 through its native Thrustmaster writer. The bridge is not T248-specific; it applies to other wheels PadForge can read and drive. The full findings and configuration steps are in [PadForge wheel bridge for WebHID](./padforge-wheel-bridge.md).
+The recommended Windows workaround is [PIDAL](./pidal-wheel-bridge.md). It presents a standard HID PID 1.0 virtual wheel to WebHID and drives the T248 through its DirectInput backend, using the wheel's native force path. The [PadForge bridge](./padforge-wheel-bridge.md) remains an alternative: it also exposes a HIDMaestro virtual HID-PID wheel and drives the T248 through PadForge's native Thrustmaster writer. Neither bridge is T248-specific; both apply to other wheels their backend can drive. Close the other bridge, vendor software and games while testing, because the physical wheel is acquired exclusively.
 
 On Linux, `hid-tmff2` can rewrite the descriptor to expose report `0x60`, which may make direct WebHID possible. That path has not yet been verified on hardware.
 

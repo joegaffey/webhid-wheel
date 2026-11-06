@@ -331,4 +331,5 @@ Next:
 - [Component integration guide](./component-integration.md)
 - [Package, setup profiles and Lapster integration plan](./lapster-integration-plan.md)
 - [Logitech, Thrustmaster and Fanatec FFB workarounds](./vendor-ffb-workarounds.md)
+- [PIDAL wheel bridge for WebHID](./pidal-wheel-bridge.md)
 - [PadForge wheel bridge for WebHID](./padforge-wheel-bridge.md)

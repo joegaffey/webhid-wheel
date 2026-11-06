@@ -15,6 +15,7 @@ Related documents:
   consumer contract for humans and coding agents.
 - [HID device mapping and capture](./device-config-and-rigs.md)
 - [Logitech, Thrustmaster and Fanatec FFB workarounds](./vendor-ffb-workarounds.md)
+- [PIDAL wheel bridge for WebHID](./pidal-wheel-bridge.md)
 - [PadForge wheel bridge for WebHID](./padforge-wheel-bridge.md)
 
 ## 1. Objectives
